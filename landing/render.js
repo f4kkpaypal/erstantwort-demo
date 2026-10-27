@@ -45,8 +45,8 @@ function renderLanding(config) {
       <p><a href="${DISQ_URL}">Servicestudie Immobilienmakler 2024, DISQ</a></p>
     </section>
     <section class="offer">
-      <h2>30 Tage Pilot kostenlos</h2>
-      <p>Sie sehen Ihre eigenen Anfragen, den Entwurf und den Termin. Kosten erst, wenn der Pilot für Sie passt.</p>
+      <h2>Preis: Platzhalter</h2>
+      <p>Platzhalter — ein Preis und kostenlose Tage sind noch nicht entschieden. Das ist kein Angebot.</p>
     </section>
     <ol>
       <li>Die Anfrage kommt an. Der Entwurf beginnt mit dem KI-Hinweis und endet mit STOP.</li>

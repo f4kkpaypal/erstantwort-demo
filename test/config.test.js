@@ -21,6 +21,11 @@ test('product defaults: approve, remind, 180 days, follow-ups off, 5 minute auto
   assert.equal(config.CRM_TARGET, 'sheets');
   assert.deepEqual(config.ALLOWED_SENDER_DOMAINS, ['immobilienscout24.de']);
   assert.equal(config.REQUIRE_DKIM_PASS, false);
+  assert.equal(config.TRUST_PROXY, false);
+  assert.equal(loadConfig({ OFFICE_MODE: 'live' }).REQUIRE_DKIM_PASS, true);
+  assert.equal(loadConfig({ OFFICE_MODE: 'live', REQUIRE_DKIM_PASS: 'false' }).REQUIRE_DKIM_PASS, false);
+  assert.equal(loadConfig({ TRUST_PROXY: 'true' }).TRUST_PROXY, true);
+  assert.equal(loadConfig({ TRUST_PROXY: '2' }).TRUST_PROXY, 2);
   assert.equal(config.OFFER_ENGLISH_REPLY, false);
   assert.equal(config.LLM_MODEL_EXTRACT, 'mistral-small-latest');
   assert.equal(config.LLM_MODEL_WRITE, 'mistral-small-latest');

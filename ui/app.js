@@ -234,14 +234,15 @@ async function showAnfragen() {
     lead.fragebogen_status === 'submitted' ? h('span', { class: 'chip' }, 'Fragebogen ausgefüllt') : '',
     lead.injection_suspected ? h('span', { class: 'chip' }, '⚠ Prompt-Injection-Verdacht') : '',
   ));
+  const demoMark = numbers.demo_data ? 'Demo · ' : '';
   shell('anfragen',
     h('div', { class: 'top' }, h('div', { class: 'logo' }, product()), h('span', { class: 'muted' }, state.boot?.mode_label || '')),
     h('h1', {}, 'Anfragen'),
     h('div', { class: 'card metrics' },
-      metricTile('Anfragen', String(numbers.anfragen)),
-      metricTile('Antwort ≤ 5 Min.', numbers.sla_label || (numbers.sla_percent == null ? '—' : `${numbers.sla_percent} %`)),
-      metricTile('Termine', String(numbers.termine)),
-      metricTile('Eingesparte Stunden · Schätzung', hours),
+      metricTile(`${demoMark}Anfragen`, String(numbers.anfragen)),
+      metricTile(`${demoMark}Antwort ≤ 5 Min.`, numbers.sla_label || (numbers.sla_percent == null ? '—' : `${numbers.sla_percent} %`)),
+      metricTile(`${demoMark}Termine`, String(numbers.termine)),
+      metricTile(`${demoMark}Eingesparte Stunden · Schätzung`, hours),
     ),
     h('p', { class: 'muted' }, numbers.formula),
     h('div', { class: 'chips' }, chips),
@@ -407,7 +408,7 @@ async function offerMove(item) {
   const data = await api(`/v1/ui/bookings/${encodeURIComponent(item.id)}/options`);
   const slots = data.slots || [];
   host.replaceChildren(
-    h('p', { class: 'muted' }, 'Neuen Termin wählen. Es wird keine E-Mail gesendet.'),
+    h('p', { class: 'muted' }, 'Neuen Termin wählen. Die Nachricht wartet danach auf Freigabe und wird nicht sofort gesendet.'),
     slots.length ? '' : h('p', {}, 'Diese Woche ist kein anderes Fenster frei.'),
     ...slots.map((slot) => h('button', {
       class: 'btn',
@@ -464,6 +465,7 @@ async function render() {
   skeleton();
   try {
     if (!state.boot) state.boot = await api('/v1/ui/bootstrap');
+    if (state.boot?.product) document.title = state.boot.product;
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg && tg.ready) {
       tg.ready();

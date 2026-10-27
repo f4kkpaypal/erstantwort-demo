@@ -35,6 +35,7 @@ const {
   notifySlotBusy,
 } = require('./telegram');
 const { findPii, collectSecrets, redactMeta } = require('./redact');
+const { withinTokenBudget } = require('./llmBudget');
 
 const PORTAL_RECIPIENT_DOMAINS = ['immobilienscout24.de'];
 
@@ -198,6 +199,86 @@ async function stopUnthreaded(state, deps) {
   return { ...state, halt: true, outcome: 'OPTOUT', telegram_text: text, sent: false };
 }
 
+async function noteLlmUsage(deps, state, step, llm) {
+  if (!llm) return;
+  await emit(deps, {
+    workflow: 'WF-01',
+    step,
+    event_code: 'LLM_USAGE',
+    lead_id: state.lead_id || null,
+    message_id_hash: state.normalized?.message_id_hash || null,
+    status: 'done',
+    llm_model: llm.model || null,
+    tokens_in: Number(llm.tokens_in) || 0,
+    tokens_out: Number(llm.tokens_out) || 0,
+    ts: nowDate(deps).toISOString(),
+  });
+}
+
+async function emitBudget(deps, state, step, gate) {
+  await emit(deps, {
+    workflow: 'WF-01',
+    step,
+    event_code: 'LLM_BUDGET',
+    lead_id: state.lead_id || null,
+    message_id_hash: state.normalized?.message_id_hash || null,
+    status: 'done',
+    ts: nowDate(deps).toISOString(),
+    meta: {
+      tokens_used: gate.used,
+      token_budget: gate.budget,
+    },
+  });
+}
+
+function leadFromPortalOnly(parsed, facts, trusted) {
+  const fields = parsed?.ok ? (parsed.fields || {}) : {};
+  const extra = facts || {};
+  const salutation = ['Herr', 'Frau', 'divers', 'Firma', 'unbekannt'].includes(fields.salutation)
+    ? fields.salutation
+    : 'unbekannt';
+  const financing = ['barzahler', 'finanzierungszusage', 'in_pruefung', 'nicht_geklaert', 'unbekannt'].includes(extra.financing_status)
+    ? extra.financing_status
+    : 'unbekannt';
+  const horizon = ['bis_3_monate', '3_bis_6_monate', 'ueber_6_monate', 'unbekannt'].includes(extra.timeline_horizon)
+    ? extra.timeline_horizon
+    : 'unbekannt';
+  const schufa = ['ja', 'nein', 'unbekannt'].includes(extra.schufa_available) ? extra.schufa_available : 'unbekannt';
+  const missing = ['budget'];
+  if (financing === 'unbekannt') missing.push('financing');
+  if (horizon === 'unbekannt' && !extra.target_date) missing.push('timeline');
+  if (!fields.phone) missing.push('phone');
+  const validation = validateExtraction({
+    is_real_estate_inquiry: true,
+    language: 'de',
+    inquiry_type: 'unbekannt',
+    listing: {
+      portal_listing_id: fields.portal_listing_id || null,
+      title: fields.title || null,
+      price_eur: fields.price_eur ?? null,
+    },
+    contact: {
+      salutation,
+      first_name: fields.first_name || null,
+      last_name: fields.last_name || null,
+      email: trusted,
+      phone: fields.phone || null,
+    },
+    budget: { amount_max_eur: null, raw_text: null },
+    equity_eur: extra.equity_eur ?? null,
+    financing_status: financing,
+    timeline: { target_date: extra.target_date || null, horizon },
+    schufa_available: schufa,
+    viewing_requested: false,
+    questions: [],
+    missing_fields: missing,
+    injection_suspected: false,
+    extraction_confidence: 0,
+  });
+  if (!validation.ok || !validation.lead?.contact?.email) return null;
+  return validation.lead;
+}
+
 async function stepExtract(state, deps) {
   if (state.halt) return state;
   if (state.route !== 'inquiry') return state;
@@ -263,28 +344,46 @@ async function stepExtract(state, deps) {
     model: deps.config.LLM_MODEL_EXTRACT,
     schemaMode: deps.config.LLM_SCHEMA_MODE,
   });
-  let llm;
-  try {
-    llm = await deps.llm(request);
-  } catch {
-    await finish(deps, state, 'NEEDS_HUMAN', 'done');
-    const text = notifyNeedsHuman({ listingId: parsed.fields?.portal_listing_id, reason: 'Modell nicht erreichbar' });
-    await deps.telegram.send(text);
-    await emit(deps, {
-      workflow: 'WF-01',
-      step: 'N06',
-      event_code: 'LLM_ERROR',
-      message_id_hash: state.normalized.message_id_hash,
-      status: 'error',
-    });
-    return { ...state, halt: true, outcome: 'NEEDS_HUMAN', telegram_text: text };
-  }
-  const parsedJson = parseModelJson(llm?.content);
-  let validation = parsedJson.ok ? validateExtraction(parsedJson.value) : { ok: false, errors: ['invalid_json'], lead: null };
-  if (!validation.ok && deps.llmRetry !== false) {
-    const second = await deps.llm(request);
-    const again = parseModelJson(second?.content);
-    if (again.ok) validation = validateExtraction(again.value);
+  let llm = null;
+  let validation;
+  const gate = await withinTokenBudget(deps);
+  if (!gate.ok) {
+    await emitBudget(deps, state, 'N06', gate);
+    const synthetic = leadFromPortalOnly(parsed, facts, trusted);
+    validation = synthetic
+      ? { ok: true, errors: [], lead: synthetic }
+      : { ok: false, errors: ['llm_budget'], lead: null };
+  } else {
+    try {
+      llm = await deps.llm(request);
+    } catch {
+      await finish(deps, state, 'NEEDS_HUMAN', 'done');
+      const text = notifyNeedsHuman({ listingId: parsed.fields?.portal_listing_id, reason: 'Modell nicht erreichbar' });
+      await deps.telegram.send(text);
+      await emit(deps, {
+        workflow: 'WF-01',
+        step: 'N06',
+        event_code: 'LLM_ERROR',
+        message_id_hash: state.normalized.message_id_hash,
+        status: 'error',
+      });
+      return { ...state, halt: true, outcome: 'NEEDS_HUMAN', telegram_text: text };
+    }
+    await noteLlmUsage(deps, state, 'N06', llm);
+    const parsedJson = parseModelJson(llm?.content);
+    validation = parsedJson.ok ? validateExtraction(parsedJson.value) : { ok: false, errors: ['invalid_json'], lead: null };
+    if (!validation.ok && deps.llmRetry !== false) {
+      const retryGate = await withinTokenBudget(deps);
+      if (!retryGate.ok) {
+        await emitBudget(deps, state, 'N06', retryGate);
+      } else {
+        const second = await deps.llm(request);
+        await noteLlmUsage(deps, state, 'N06', second);
+        llm = second || llm;
+        const again = parseModelJson(second?.content);
+        if (again.ok) validation = validateExtraction(again.value);
+      }
+    }
   }
   if (!validation.lead) {
     await finish(deps, state, 'NEEDS_HUMAN', 'done');
@@ -512,10 +611,17 @@ async function stepCompose(state, deps) {
   let paragraphs = null;
   let usedFallback = false;
   let llm = null;
-  try {
-    llm = await deps.llm(request);
-  } catch {
+  const gate = await withinTokenBudget(deps);
+  if (!gate.ok) {
     usedFallback = true;
+    await emitBudget(deps, state, 'N14', gate);
+  } else {
+    try {
+      llm = await deps.llm(request);
+    } catch {
+      usedFallback = true;
+    }
+    if (llm) await noteLlmUsage(deps, state, 'N14', llm);
   }
   const parsed = llm ? parseModelJson(llm.content) : { ok: false };
   const offerEnglish = lead.language === 'en' || deps.config.OFFER_ENGLISH_REPLY === true;
@@ -981,6 +1087,10 @@ async function stepReplyBook(state, deps) {
   }
   const decision = decideSend({ kind: 'confirmation', config: deps.config, optout: false });
   if (!decision.ok) {
+    await deps.crm.updateStatus(state.lead_id, {
+      booking_status: 'awaiting_freigabe',
+      needs_human_reason: 'confirmation_freigabe',
+    });
     const text = notifyFreigabe({
       leadId: state.lead_id,
       grade: state.crm_lead.grade || '—',

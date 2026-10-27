@@ -339,6 +339,24 @@ function composeConfirmation({ lead, objekt, slot, makler, leadId }) {
   };
 }
 
+function composeMoveNotice({ contact, title, where, when, makler, leadId, owner }) {
+  const what = owner ? 'Bewertungstermin' : 'Besichtigungstermin';
+  const place = owner ? '' : ` Treffpunkt: ${where || 'den vereinbarten Treffpunkt'}.`;
+  const text = [
+    AI_FIRST_LINE,
+    '',
+    `${anrede(contact)},`,
+    `Ihr ${what} wurde verschoben: ${when}.${place}`,
+    'Falls der neue Termin nicht passt, antworten Sie bitte auf diese E-Mail.',
+    '',
+    signature(makler),
+  ].join('\n');
+  const subject = owner
+    ? `Verschoben: Bewertungstermin ${shortTitle(title)} [${leadId}]`
+    : `Verschoben: Besichtigung ${shortTitle(title)} [${leadId}]`;
+  return { subject, text };
+}
+
 function decideSend({ kind, config, optout }) {
   if (optout) return { ok: false, reason: 'optout' };
   if (kind === 'followup') {
@@ -353,7 +371,7 @@ function decideSend({ kind, config, optout }) {
     if (!config.INTERESSE_FOLLOWUP_ENABLED) return { ok: false, reason: 'interesse_disabled' };
     return { ok: false, reason: 'interesse_not_in_loom_slice' };
   }
-  if (config.SEND_MODE !== 'auto' && kind !== 'confirmation') {
+  if (config.SEND_MODE !== 'auto') {
     return {
       ok: false,
       reason: 'awaiting_freigabe',
@@ -367,10 +385,10 @@ function recipientAllowed({ leadEmail, proposedTo, relayDomains }) {
   const lead = String(leadEmail || '').trim().toLowerCase();
   const to = String(proposedTo || '').trim().toLowerCase();
   if (!lead || !EMAIL_SIMPLE(to) || to !== lead) return false;
-  const domain = to.split('@')[1] || '';
-  const relays = relayDomains || [];
+  const relays = (relayDomains || []).map((item) => String(item).trim().toLowerCase()).filter(Boolean);
   if (relays.length === 0) return true;
-  return relays.includes(domain) || domain === lead.split('@')[1];
+  const domain = to.split('@')[1] || '';
+  return relays.includes(domain);
 }
 
 function EMAIL_SIMPLE(value) {
@@ -394,6 +412,7 @@ module.exports = {
   composeOwnerReply,
   composeOwnerConfirmation,
   composeConfirmation,
+  composeMoveNotice,
   decideSend,
   recipientAllowed,
   factLines,

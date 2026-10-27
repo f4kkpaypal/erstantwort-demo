@@ -207,7 +207,7 @@ test('the owner questionnaire skips sensitive questions and the demo list can fi
     assert.equal(again.lead.schufa_available, undefined);
     const schema = formSchema({
       lead: { lead_kind: 'eigentuemer', listing_title: 'Wohnung in Gostenhof' },
-      makler: { name: 'Maria K.', buero: 'easyrent. Demo', adresse: 'Nürnberg' },
+      makler: { name: 'Maria K.', buero: 'Erstantwort Demo', adresse: 'Nürnberg' },
       config: { FRAGEBOGEN_INCOME_ENABLED: true },
     });
     assert.equal(schema.steps[0].fields.some((field) => field.name === 'income_band'), false);

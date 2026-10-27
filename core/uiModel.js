@@ -245,6 +245,7 @@ function presentLead(lead, { detail, now, zone, publicBase, config }) {
     draft_text: lead.include_draft === false ? '' : (lead.draft_text || buildDraft(lead, lead._objekt, url, config)),
     lead_reply: lead.lead_reply || '',
     booked_slot: lead.booked_slot || '',
+    booking_status: lead.booking_status || '',
     needs_human_reason: lead.needs_human_reason || '',
     send_simulated: lead.send_simulated === true,
     grade_changed: gradeChanged(lead),
@@ -311,7 +312,8 @@ function metrics({ leads, bookings, config, minutes, now, days }) {
     approve_phase: approvePhase,
     minutes_per_reply: tAntwort,
     minutes_per_booking: tTermin,
-    formula: `Schätzung: (automatische Antworten × ${tAntwort} Min. + gebuchte Termine × ${tTermin} Min.) ÷ 60. Minutenwerte können Sie anpassen.`,
+    demo_data: config.OFFICE_MODE !== 'live',
+    formula: `Schätzung: (automatische Antworten × ${tAntwort} Min. + gebuchte Termine × ${tTermin} Min.) ÷ 60. Minutenwerte können Sie anpassen.${config.OFFICE_MODE !== 'live' ? ' Demo · diese Zahlen stammen aus Demodaten.' : ''}`,
     counts: { auto_replies: A, bookings: T },
   };
 }

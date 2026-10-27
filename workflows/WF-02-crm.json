@@ -51,7 +51,7 @@
         0
       ],
       "parameters": {
-        "content": "Этот срез пишет лид в Google Sheet «Ihr CRM (Demo)». Propstack — первый следующий CRM и здесь отвечает NOT_IMPLEMENTED. Секреты Google лежат в .env движка, не в n8n.",
+        "content": "Этот срез пишет лид в Google Sheet «Ihr CRM (Demo)». Propstack не реализован: API-клиента нет и он не обещан. Секреты Google лежат в .env движка, не в n8n.",
         "width": 420,
         "height": 220,
         "color": 4

@@ -3,9 +3,11 @@
 /**
  * Owner-lead mail adapters.
  *
+ * Формат предположительный, не проверен на реальных письмах.
  * Immowelt and Heimziel do not publish a sample we can treat as fact.
  * Each adapter therefore expects a fictional labeled block, marked
- * `Annahme-Format`. Labels may vary in case, spacing and HTML wrapping.
+ * `Annahme-Format`. There are no portal prices and no real portal fields here.
+ * Labels may vary in case, spacing and HTML wrapping.
  * The allowed sender domains come only from config
  * (`OWNER_LEAD_SENDER_DOMAINS`), never from this file.
  * Replace an adapter when a real sample exists. OpenImmo XML for
@@ -30,7 +32,7 @@ function unrecognized(source) {
     ok: false,
     code: 'OWNER_LEAD_UNRECOGNIZED',
     source: name,
-    message: `Eigentümer-Lead nicht erkannt (Quelle ${name}). Das angenommene Textformat steht im Adapter und ist keine echte Portal-Vorlage.`,
+    message: `Eigentümer-Lead nicht erkannt (Quelle ${name}). Das angenommene Textformat steht im Adapter und ist keine echte Portal-Vorlage. Format ist eine Annahme und wurde nicht an echten Schreiben geprüft.`,
   };
 }
 

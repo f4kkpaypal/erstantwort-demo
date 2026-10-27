@@ -155,7 +155,7 @@ test('the privacy text uses the broker profile and skips the income sentence', (
     objekt,
     makler: {
       name: 'Maria K.',
-      buero: 'easyrent. Demo',
+      buero: 'Erstantwort Demo',
       adresse: 'Johannisstraße 1, 90419 Nürnberg',
       datenschutz_url: 'https://REPLACE_ME/datenschutz',
     },

@@ -36,7 +36,7 @@ node web/server.js
 - `IMAP_MODE=imap` и `MAIL_MODE=smtp` вместе с хостом, портом, логином и паролем ящика бюро. Без этого почта не ходит.
 - `SEND_MODE=approve` — лиду ничего не уходит, пока в Mini App не нажать «Antwort freigeben».
 - `LLM_MODE=mock` оставить. Живой Mistral только если поставить `LLM_MODE=live` и ключ. На mock настоящее письмо ImmoScout24, которого нет среди учебных образцов, движок не разберёт.
-- `OWNER_LEADS_ENABLED=false`. Канал собственников не включать, пока нет двух настоящих писем Immowelt или Heimziel.
+- `OWNER_LEADS_ENABLED=false`. Канал собственников не включать, пока нет двух настоящих писем. Формат предположительный, не проверен на реальных письмах.
 - `SHEET_INCLUDE_CONTACT=false`, если позже включите Google Sheet. В таблицу тогда не пишутся почта и телефон. Локальная база для отправки их хранит.
 - `CALENDAR_MODE=google` только вместе с OAuth бюро. Пока `mock`: событие пишется в `var/calendar.json`.
 - `TELEGRAM_BOT_TOKEN` и `TELEGRAM_ALLOWED_USER_IDS` — бот и числовые id маклеров этого бюро. Чужой id в Mini App не пускает. `BOT_POLLING=true` вместе с `TELEGRAM_MODE=telegram` включает ответы бота на `/start`, `/help` и любой другой текст. Без флага бот молчит и в сеть за сообщениями не ходит. Кнопка Mini App есть только при адресе `https://`.

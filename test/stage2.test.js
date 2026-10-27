@@ -157,7 +157,7 @@ test('owner mail tolerates case, spaces and HTML and stays an assumption', () =>
   assert.match(multi.textHtml, /immowelt-eigentuemer/);
 });
 
-test('the broker can edit a pending draft and move a viewing without sending mail', async () => {
+test('the broker can edit a pending draft and a move queues Freigabe without sending', async () => {
   const built = makeDeps({ config: testConfig({ DEMO_UI_NO_AUTH: 'true' }) });
   built.clock = () => NOW;
   built.calendar.events.push({
@@ -189,12 +189,23 @@ test('the broker can edit a pending draft and move a viewing without sending mai
     });
     assert.equal(moved.status, 200);
     assert.equal(moved.json.mailed, false);
-    assert.match(moved.json.message, /keine E-Mail/);
+    assert.equal(moved.json.queued, true);
+    assert.match(moved.json.message, /Freigabe/);
+    assert.doesNotMatch(moved.json.message, /keine E-Mail/);
     assert.equal(built.mail.sent.length, 0);
     assert.equal(built.calendar.events[0].start, options.json.slots[0].start);
+    const timur = await call(port, 'GET', '/v1/ui/leads/L-20261021-0103');
+    assert.equal(timur.json.lead.reply_status, 'pending_approval');
+    assert.match(timur.json.lead.status_label, /Freigabe/);
+    assert.match(timur.json.lead.draft_text, /verschoben/);
+    assert.equal(timur.json.lead.draft_text.includes(AI_FIRST_LINE), true);
+    assert.match(timur.json.lead.draft_text, /STOP/);
+    assert.equal(timur.json.lead.email.includes('@'), true);
+    assert.equal(JSON.stringify(built.db.events).includes(timur.json.lead.email), false);
     const week = await call(port, 'GET', '/v1/ui/bookings?week=2026-W43');
     const flat = JSON.stringify(week.json);
-    assert.match(flat, /keine E-Mail|nicht raus/);
+    assert.match(flat, /Freigabe/);
+    assert.equal(flat.includes('keine E-Mail'), false);
     assert.equal(flat.includes('unbestätigt'), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -234,6 +245,30 @@ test('ops alerts stay free of personal data and do not call Telegram unless aske
   assert.equal(log.includes('secret-pass-99'), false);
 });
 
+test('sqlite counts Mistral tokens only inside the current Berlin day', async () => {
+  const { dayStartIso } = require('../core/llmBudget');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokens-'));
+  const store = new SqliteStore(path.join(dir, 'autopilot.sqlite'));
+  await store.logEvent({
+    ts: '2026-10-19T10:00:00.000Z',
+    event_code: 'LLM_USAGE',
+    tokens_in: 50,
+    tokens_out: 50,
+    status: 'done',
+  });
+  await store.logEvent({
+    ts: '2026-10-21T10:00:00.000Z',
+    event_code: 'LLM_USAGE',
+    tokens_in: 3,
+    tokens_out: 4,
+    status: 'done',
+  });
+  const start = dayStartIso(new Date('2026-10-21T10:00:00.000Z'), 'Europe/Berlin');
+  assert.equal(await store.sumTokensSince(start), 7);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('sqlite backup and a postgres dump plan do not keep the database password', () => {
   assert.equal(pgPlan({ POSTGRES_PASSWORD: 'change-me-postgres' }).ready, false);
   assert.equal(pgPlan({ POSTGRES_PASSWORD: 'real-db-secret' }).ready, true);
@@ -259,7 +294,10 @@ test('the landing page is static, cites DISQ, and does not invent a live office'
   const demo = renderLanding(loadConfig({}));
   assert.match(demo, /Erstantwort/);
   assert.match(demo, /47 Prozent/);
-  assert.match(demo, /30 Tage Pilot kostenlos/);
+  assert.match(demo, /Preis: Platzhalter/);
+  assert.match(demo, /kein Angebot/);
+  assert.doesNotMatch(demo, /30 Tage/);
+  assert.doesNotMatch(demo, /Pilot kostenlos/);
   assert.match(demo, new RegExp(DISQ_URL.replace(/[.]/g, '\\.')));
   assert.match(demo, /speichert nichts/);
   assert.match(demo, /disabled/);

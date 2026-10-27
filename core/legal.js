@@ -25,11 +25,18 @@ function page(title, body) {
 </html>`;
 }
 
+const PLACEHOLDER_NOTE = 'Platzhalter — vor Nutzung durch Anwalt prüfen';
+
+function placeholder() {
+  return `<p class="banner">${esc(PLACEHOLDER_NOTE)}</p>`;
+}
+
 function missing(product) {
-  return `<article class="card">
+  return `${placeholder()}<article class="card">
       <div class="logo">${esc(product)}</div>
       <h1>Angaben fehlen</h1>
       <p>Für den Betrieb sind Name, Adresse und E-Mail des Betreibers noch nicht eingetragen. Diese Seite zeigt keine erfundenen Bürodaten.</p>
+      <p>${esc(PLACEHOLDER_NOTE)}. Dies ist kein fertiger Rechtstext.</p>
     </article>`;
 }
 
@@ -42,9 +49,9 @@ function renderImpressum(config) {
   }
   const banner = live ? '' : '<p class="banner">Demo · fiktive Daten</p>';
   const note = live
-    ? ''
+    ? `<p>${esc(PLACEHOLDER_NOTE)}. Dies ist kein fertiger Rechtstext.</p>`
     : '<p>Diese Angaben sind erfunden und gelten nur für die lokale Demo. Ein echtes Büro trägt hier seine eigenen Daten ein.</p>';
-  return page(`Impressum · ${product}`, `${banner}
+  return page(`Impressum · ${product}`, `${placeholder()}${banner}
     <article class="card">
       <div class="logo">${esc(product)}</div>
       <h1>Impressum</h1>
@@ -68,10 +75,11 @@ function renderDatenschutz(config) {
   const model = config.LLM_MODE === 'live'
     ? 'Ist ein Sprachmodell eingeschaltet, verarbeitet der in der Auftragsverarbeitung genannte Anbieter den Text der Anfrage. Wo das geschieht, steht nicht in dieser Software.'
     : 'In der Grundeinstellung verlässt der Anfragetext diesen Server nicht, weil kein externes Sprachmodell eingeschaltet ist.';
-  return page(`Datenschutz · ${product}`, `${banner}
+  return page(`Datenschutz · ${product}`, `${placeholder()}${banner}
     <article class="card">
       <div class="logo">${esc(product)}</div>
       <h1>Datenschutzhinweise</h1>
+      <p>${esc(PLACEHOLDER_NOTE)}. Dies ist kein fertiger Rechtstext.</p>
       <p>Verantwortlich ist ${esc(makler.buero || makler.name)}, ${esc(makler.adresse)}.${live ? '' : ' Diese Seite ist eine lokale Demo-Fassung. Sie ersetzt keine Hinweise eines echten Maklerbüros.'}</p>
       <p>Wir verarbeiten Angaben aus einer Anfrage, um sie zu bearbeiten und für das Büro zu priorisieren (Art. 6 Abs. 1 lit. b und f DSGVO). Die Einordnung folgt festen Regeln. Eine automatische Absage gibt es nicht. Antworten können mit Hilfe künstlicher Intelligenz entworfen sein. Solche Nachrichten sind gekennzeichnet.</p>
       <p>Alle Angaben im Fragebogen sind freiwillig. Haushaltszusammensetzung und Haustiere speichern wir nicht. Ein genaues Einkommen speichern wir nur, wenn das Büro dieses Feld eingeschaltet hat, und dann nur als Einordnung, nicht als Ausweis.</p>
@@ -81,4 +89,4 @@ function renderDatenschutz(config) {
     </article>`);
 }
 
-module.exports = { renderImpressum, renderDatenschutz };
+module.exports = { renderImpressum, renderDatenschutz, PLACEHOLDER_NOTE };

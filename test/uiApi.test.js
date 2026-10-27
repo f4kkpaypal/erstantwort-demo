@@ -118,7 +118,9 @@ test('freigeben is simulated, stop does not opt the lead out, and the hours tile
   try {
     const numbers = await call(port, 'GET', '/v1/ui/metrics?days=7');
     assert.equal(numbers.json.schaetzung, true);
+    assert.equal(numbers.json.demo_data, true);
     assert.match(numbers.json.formula, /Schätzung/);
+    assert.match(numbers.json.formula, /Demo/);
     assert.equal(numbers.json.counts.auto_replies, 4);
     assert.equal(numbers.json.counts.bookings, 3);
     assert.equal(numbers.json.eingesparte_stunden, (4 * 5 + 3 * 10) / 60);

@@ -288,7 +288,6 @@ function buildServer(deps) {
         sendJson(res, 200, {
           ok: true,
           target: deps.config.CRM_TARGET,
-          later: 'propstack',
           propstack: 'NOT_IMPLEMENTED',
           columns: LEAD_COLUMNS,
           objekt_columns: OBJEKT_COLUMNS,

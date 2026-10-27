@@ -234,7 +234,7 @@ class SqliteStore {
 
   async logEvent(event) {
     const row = {
-      ts: new Date().toISOString(),
+      ts: event.ts || new Date().toISOString(),
       workflow: event.workflow || '',
       step: event.step || '',
       lead_id: event.lead_id || null,
@@ -242,10 +242,31 @@ class SqliteStore {
       status: event.status || '',
       event_code: event.event_code || '',
       grade: event.grade || null,
+      llm_model: event.llm_model || null,
+      tokens_in: Number(event.tokens_in) || 0,
+      tokens_out: Number(event.tokens_out) || 0,
       meta: redactMeta(event.meta || {}, event.names || []),
     };
     this.run('INSERT INTO events (payload) VALUES (?)', [JSON.stringify(row)]);
     return row;
+  }
+
+  async sumTokensSince(iso) {
+    const from = Date.parse(iso);
+    let sum = 0;
+    for (const row of this.all('SELECT payload FROM events')) {
+      let payload;
+      try {
+        payload = JSON.parse(row.payload);
+      } catch {
+        continue;
+      }
+      const ts = Date.parse(payload.ts || 0);
+      if (Number.isFinite(from) && (!Number.isFinite(ts) || ts < from)) continue;
+      sum += Number(payload.tokens_in) || 0;
+      sum += Number(payload.tokens_out) || 0;
+    }
+    return sum;
   }
 
   async enqueueCrm(row) {

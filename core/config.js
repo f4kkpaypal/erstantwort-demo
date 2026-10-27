@@ -154,7 +154,8 @@ function loadConfig(env = process.env) {
     IMAP_SILENCE_MINUTES: int(env.IMAP_SILENCE_MINUTES, 15),
     SHEET_INCLUDE_CONTACT: bool(env.SHEET_INCLUDE_CONTACT, false),
     RETENTION_INTERVAL_HOURS: int(env.RETENTION_INTERVAL_HOURS, 6),
-    REQUIRE_DKIM_PASS: bool(env.REQUIRE_DKIM_PASS, false),
+    REQUIRE_DKIM_PASS: bool(env.REQUIRE_DKIM_PASS, officeModeOf(env) === 'live'),
+    TRUST_PROXY: trustProxyOf(env.TRUST_PROXY),
     ALLOWED_RECIPIENT_RELAY_DOMAINS: csv(env.ALLOWED_RECIPIENT_RELAY_DOMAINS),
     LLM_BASE_URL: (env.LLM_BASE_URL || 'https://api.mistral.ai/v1').replace(/\/$/, ''),
     LLM_MODEL_EXTRACT: llmModel(env, 'LLM_MODEL_EXTRACT'),
@@ -230,6 +231,17 @@ function loadConfig(env = process.env) {
   });
 }
 
+function trustProxyOf(value) {
+  if (value === undefined || value === null || value === '') return false;
+  if (value === true) return true;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  const n = Number(text);
+  if (Number.isFinite(n) && n > 0) return Math.min(Math.trunc(n), 8);
+  return false;
+}
+
 function sendModeOf(env) {
   const raw = env.SEND_MODE;
   const empty = raw === undefined || String(raw).trim() === '';
@@ -261,6 +273,7 @@ module.exports = {
   isPlaceholder,
   berlinNow,
   bool,
+  trustProxyOf,
   secretConfigured,
   senderDomains,
   LLM_MODEL_FALLBACKS,

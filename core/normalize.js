@@ -57,14 +57,10 @@ function stripOwnFooter(text) {
     .join('\n');
 }
 
-function dkimPassed(headers) {
-  const blob = [
-    header(headers, 'authentication-results'),
-    header(headers, 'authentication-results-original'),
-    header(headers, 'x-dkim-status'),
-  ].join('\n');
-  if (/dkim\s*=\s*pass/i.test(blob)) return true;
-  return /^pass$/i.test(header(headers, 'x-dkim-status').trim());
+function dkimPassed(source) {
+  // Authentication-Results and X-DKIM-Status travel inside the message.
+  // The sender can write them. Only the receiving program may set dkimVerified.
+  return Boolean(source) && source.dkimVerified === true;
 }
 
 function stripControlTags(text) {
@@ -157,7 +153,7 @@ function fromImapItem(item) {
     fixture: src.fixture || header(headers, 'x-fixture') || '',
     autoSubmitted: header(headers, 'auto-submitted'),
     xAutoreply: header(headers, 'x-autoreply') || header(headers, 'x-autorespond'),
-    dkimPass: dkimPassed(headers),
+    dkimPass: dkimPassed(src),
   };
 }
 

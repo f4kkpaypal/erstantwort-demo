@@ -16,6 +16,7 @@
     "ops:backup": "node scripts/ops.js backup",
     "ops:restore-check": "node scripts/ops.js restore-check",
     "ops:health": "node scripts/watch.js",
+    "erase": "node scripts/erase.js",
     "office:check": "node scripts/office.js check",
     "battle": "sh scripts/battle.sh",
     "landing": "node landing/render.js"

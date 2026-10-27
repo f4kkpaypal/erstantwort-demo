@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { listenHost, loadConfig } = require('../core/config');
+const { clientIp } = require('../core/clientIp');
 const { renderDatenschutz, renderImpressum } = require('../core/legal');
 
 const ROOT = path.join(__dirname, '..', 'ui');
@@ -41,6 +42,7 @@ function sendFile(res, file) {
 function proxy(req, res, engine) {
   const target = new URL(req.url, engine);
   const headers = { ...req.headers, host: target.host };
+  headers['x-forwarded-for'] = clientIp(req, loadConfig(process.env).TRUST_PROXY);
   const out = http.request(target, { method: req.method, headers }, (upstream) => {
     const responseHeaders = { ...upstream.headers, 'cache-control': 'no-store' };
     res.writeHead(upstream.statusCode || 502, responseHeaders);

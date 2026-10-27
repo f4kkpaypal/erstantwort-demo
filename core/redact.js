@@ -34,6 +34,8 @@ const META_KEYS = new Set([
   'model',
   'tokens_in',
   'tokens_out',
+  'tokens_used',
+  'token_budget',
   'message',
   'source',
 ]);

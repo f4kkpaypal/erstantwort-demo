@@ -68,7 +68,7 @@ function propstackDriver() {
   const error = () => contractError(
     'NOT_IMPLEMENTED',
     false,
-    'Propstack is the first later CRM target and is not part of this slice. Google Sheet stays the demo CRM.',
+    'Propstack is not implemented. This build has no Propstack API client.',
   );
   return {
     target: 'propstack',

@@ -1,6 +1,7 @@
 'use strict';
 
 const { DateTime } = require('luxon');
+const { clientIp, rateAllow, formHits } = require('../core/clientIp');
 const { verifyInitData, allowedTelegramIds } = require('../core/uiAuth');
 const { applyFragebogen, formSchema } = require('../core/fragebogen');
 const {
@@ -14,9 +15,9 @@ const {
   buildDraft,
   bookingWord,
 } = require('../core/uiModel');
-const { notifyStop } = require('../core/telegram');
+const { notifyStop, notifyFreigabe } = require('../core/telegram');
 const { makeMessageId } = require('../core/messageId');
-const { AI_FIRST_LINE } = require('../core/template');
+const { AI_FIRST_LINE, composeMoveNotice } = require('../core/template');
 const { pickSlots } = require('../core/slots');
 
 const PIPELINE = new Set(['neu', 'kontaktiert', 'termin', 'abgeschlossen', 'verworfen']);
@@ -355,7 +356,7 @@ async function act(deps, state, leadId, action, body) {
       await deps.db.insertOutbound({
         sent_message_id_hash: mid.hash,
         lead_id: lead.lead_id,
-        kind: 'first_reply',
+        kind: lead.draft_kind || 'first_reply',
         offered_slots: lead.offered_slots || [],
         sent_at: nowOf(deps).toISOString(),
         rfc_message_id: mid.messageId,
@@ -432,7 +433,7 @@ function weekView(state, deps, weekParam) {
     title: `Besichtigungen · KW ${cursor.weekNumber}`,
     days,
     empty: days.every((day) => day.items.length === 0),
-    note: 'Freie Fenster: täglich 10–18 Uhr, 45 Minuten. Verschieben ändert den Termin hier. Eine E-Mail geht dabei nicht raus.',
+    note: 'Freie Fenster: täglich 10–18 Uhr, 45 Minuten. Verschieben ändert den Termin hier und legt die Nachricht in die Freigabe. Versendet wird sie nicht von selbst.',
   };
 }
 
@@ -443,6 +444,51 @@ function offerSlots(state, deps, booking) {
     .map((row) => ({ start: row.slot_start, end: row.slot_end }));
   return pickSlots({ now: nowOf(deps), busy, rules, count: 3 })
     .filter((slot) => slot.start !== booking.slot_start);
+}
+
+async function queueMoveNotice(deps, state, booking, lead, slot) {
+  if (!lead?.email) return false;
+  if (lead.optout === true || lead.needs_human_reason === 'lead_stop') return false;
+  const objekt = objektById(state, lead.portal_listing_id);
+  const owner = booking.kind === 'bewertung' || lead.lead_kind === 'eigentuemer';
+  const mail = composeMoveNotice({
+    contact: {
+      salutation: lead.salutation,
+      first_name: lead.first_name,
+      last_name: lead.last_name,
+    },
+    title: lead.listing_title || objekt?.title || 'Ihr Objekt',
+    where: (objekt?.viewing_location || '').trim() || 'den vereinbarten Treffpunkt',
+    when: slot.label_long || slot.label,
+    makler: deps.config.MAKLER_PROFILE,
+    leadId: lead.lead_id,
+    owner,
+  });
+  lead.reply_status = 'pending_approval';
+  lead.draft_text = mail.text;
+  lead.draft_subject = mail.subject;
+  lead.draft_kind = 'reschedule';
+  lead.include_draft = true;
+  lead.send_simulated = false;
+  if (deps.telegram?.send) {
+    await deps.telegram.send(notifyFreigabe({
+      leadId: lead.lead_id,
+      grade: lead.grade,
+      listingId: lead.portal_listing_id,
+      kind: lead.lead_kind,
+    }));
+  }
+  if (deps.db?.logEvent) {
+    await deps.db.logEvent({
+      workflow: 'UI',
+      step: 'move',
+      event_code: 'MOVE_FREIGABE',
+      lead_id: lead.lead_id,
+      status: 'done',
+      ts: nowOf(deps).toISOString(),
+    });
+  }
+  return true;
 }
 
 async function moveBooking(deps, state, booking, start) {
@@ -460,28 +506,26 @@ async function moveBooking(deps, state, booking, start) {
       tz: deps.config.GENERIC_TIMEZONE,
     });
   }
+  const queued = await queueMoveNotice(deps, state, booking, lead, slot);
+  const who = booking.kind === 'bewertung' || lead?.lead_kind === 'eigentuemer' ? 'Eigentümer' : 'Interessenten';
   return {
     ok: true,
-    message: 'Termin verschoben. Es wurde keine E-Mail gesendet.',
+    message: queued
+      ? `Termin verschoben. Die Nachricht an den ${who} wartet auf Freigabe und wurde nicht gesendet.`
+      : 'Termin verschoben. Es liegt keine Nachricht zur Freigabe.',
     slot_label: slot.label,
     mailed: false,
+    queued,
   };
 }
 
-const hits = new Map();
-
 async function handleForm(req, res, deps, pathname) {
   const token = decodeURIComponent(pathname.slice(3));
-  const ip = String(req.socket?.remoteAddress || 'local');
-  const now = Date.now();
-  const bucket = hits.get(ip) || [];
-  const recent = bucket.filter((ts) => now - ts < 10 * 60 * 1000);
-  if (recent.length > 60) {
+  const ip = clientIp(req, deps.config.TRUST_PROXY);
+  if (!rateAllow(formHits, ip, Date.now())) {
     sendJson(res, 429, { ok: false, error_code: 'rate_limited', message: 'Bitte später erneut versuchen.' });
     return;
   }
-  recent.push(now);
-  hits.set(ip, recent);
   const state = await ensureUi(deps);
   const row = deps.fragebogen.find(token);
   if (!row) {

@@ -91,6 +91,11 @@ async function publishReply(deps, state, existing) {
       await deps.board.upsertUiBooking(booking);
     }
   }
+  if (state.outcome === 'PENDING_APPROVAL') {
+    card.booking_status = 'awaiting_freigabe';
+    card.needs_human_reason = 'confirmation_freigabe';
+    card.lead_reply = String(state.normalized?.text_clean || '').slice(0, 280);
+  }
   if (state.outcome === 'NEEDS_HUMAN' && state.reply_reason) {
     card.needs_human_reason = state.reply_reason;
   }

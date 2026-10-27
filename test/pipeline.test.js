@@ -287,6 +287,16 @@ test('only an ImmoScout24 sender can open an inquiry, and only the lead can act 
     proposedTo: 'anna.schmidt@lead.testdomain.de',
     relayDomains: [],
   }), true);
+  assert.equal(recipientAllowed({
+    leadEmail: 'anna.schmidt@lead.testdomain.de',
+    proposedTo: 'anna.schmidt@lead.testdomain.de',
+    relayDomains: ['immobilienscout24.de'],
+  }), false);
+  assert.equal(recipientAllowed({
+    leadEmail: 'anna@immobilienscout24.de',
+    proposedTo: 'anna@immobilienscout24.de',
+    relayDomains: ['immobilienscout24.de'],
+  }), true);
   const spam = makeDeps({ llmFixture: 'E01' });
   const foreign = loadMail('E01');
   foreign.from = 'spammer@evil.example';
@@ -335,9 +345,15 @@ test('only an ImmoScout24 sender can open an inquiry, and only the lead can act 
   const unsigned = await runInbound(loadMail('E01'), dkim);
   assert.equal(unsigned.outcome, 'SKIPPED_DKIM');
   assert.equal(dkim.llmCalls.length, 0);
+  const forged = loadMail('E01');
+  forged.messageId = '<e01.forged-dkim@immobilienscout24.de>';
+  forged.headers = { ...forged.headers, 'authentication-results': 'mx.example; dkim=pass header.d=immobilienscout24.de', 'x-dkim-status': 'pass' };
+  const forgedResult = await runInbound(forged, dkim);
+  assert.equal(forgedResult.outcome, 'SKIPPED_DKIM');
   const signed = loadMail('E01');
   signed.messageId = '<e01.dkim@immobilienscout24.de>';
-  signed.headers = { ...signed.headers, 'authentication-results': 'mx.example; dkim=pass header.d=immobilienscout24.de' };
+  signed.dkimVerified = true;
+  signed.headers = { ...signed.headers, 'authentication-results': 'mx.example; dkim=fail' };
   const passed = await runInbound(signed, dkim);
   assert.equal(passed.outcome, 'SENT');
 });
@@ -460,4 +476,45 @@ test('the questionnaire link is only in the first reply', async () => {
   assert.equal(deps.mail.sent.length, 2);
   assert.doesNotMatch(deps.mail.sent[1].text, /Optional: Wenn Sie möchten/);
   assert.ok(deps.mail.sent[1].text.includes(STOP_LINE));
+});
+
+test('the daily Mistral budget skips the model and keeps the template letter', async () => {
+  assert.equal(testConfig({}).LLM_DAILY_TOKEN_BUDGET, 200000);
+  const stale = makeDeps({
+    llmFixture: 'E01',
+    config: testConfig({ LLM_DAILY_TOKEN_BUDGET: '15' }),
+  });
+  await stale.db.logEvent({
+    ts: '2026-10-19T10:00:00.000Z',
+    event_code: 'LLM_USAGE',
+    tokens_in: 900000,
+    tokens_out: 900000,
+    status: 'done',
+  });
+  const kept = await runInbound(loadMail('E01'), stale);
+  assert.equal(kept.outcome, 'SENT');
+  assert.equal(stale.llmCalls.length, 1);
+  assert.equal(stale.llmCalls[0].response_format.json_schema.name, 'lead_extraction');
+  assert.equal(kept.mail.used_fallback, true);
+  assert.match(kept.mail.text, /Vielen Dank für Ihr Interesse/);
+  assert.ok(kept.mail.text.includes(AI_FIRST_LINE));
+  assert.match(kept.mail.text, /STOP/);
+  const budgetEvents = stale.db.events.filter((row) => row.event_code === 'LLM_BUDGET');
+  assert.ok(budgetEvents.length >= 1);
+  const journal = JSON.stringify(budgetEvents);
+  assert.equal(journal.includes('@'), false);
+  assert.deepEqual(findPii(journal, secretsOf(kept)), []);
+
+  const blocked = makeDeps({
+    llmFixture: 'E01',
+    config: testConfig({ LLM_DAILY_TOKEN_BUDGET: '0' }),
+  });
+  const templated = await runInbound(loadMail('E01'), blocked);
+  assert.equal(blocked.llmCalls.length, 0);
+  assert.equal(templated.sent, true);
+  assert.equal(templated.mail.used_fallback, true);
+  assert.ok(templated.mail.text.includes(AI_FIRST_LINE));
+  assert.match(templated.mail.text, /STOP/);
+  assert.equal(blocked.db.events.some((row) => row.event_code === 'LLM_BUDGET'), true);
+  assert.equal(JSON.stringify(blocked.db.events).includes('@'), false);
 });

@@ -24,7 +24,7 @@ function tma() {
   return { Authorization: `tma ${initData}` };
 }
 
-test('local IMAP and SMTP run intake, Freigabe, slot reply and a calendar event', async () => {
+test('local IMAP and SMTP run intake and Freigabe, and a slot reply waits for Freigabe', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erstantwort-mail-'));
   const smtp = await startMiniSmtp();
   const imap = await startMiniImap({ user: 'makler', pass: 'local-pass' });
@@ -53,6 +53,7 @@ test('local IMAP and SMTP run intake, Freigabe, slot reply and a calendar event'
     TELEGRAM_ALLOWED_USER_IDS: '4242',
     DEMO_UI_NO_AUTH: 'false',
     OFFICE_MODE: 'live',
+    REQUIRE_DKIM_PASS: 'false',
     OWNER_LEADS_ENABLED: 'false',
     OPERATOR_NAME: 'Roman Beispiel',
     OPERATOR_BUERO: 'Beispiel Immobilien',
@@ -120,17 +121,12 @@ test('local IMAP and SMTP run intake, Freigabe, slot reply and a calendar event'
     imap.push(reply);
     const second = await pollOnce(runtime);
     assert.equal(second.count, 1);
-    assert.ok(runtime.calendar.events.length >= 1);
-    assert.match(runtime.calendar.events[0].title, /^Besichtigung /);
-    assert.doesNotMatch(runtime.calendar.events[0].title, /Anna|Schmidt|@/);
-    assert.doesNotMatch(runtime.calendar.events[0].description, /Anna|Schmidt|@/);
-    assert.ok(smtp.messages.length >= 2);
-    assert.match(smtp.messages[1], /STOP/);
-    const week = await fetch(`http://127.0.0.1:${port}/v1/ui/bookings`, {
+    assert.equal(runtime.calendar.events.length, 0);
+    assert.equal(smtp.messages.length, 1);
+    const shownAfter = await fetch(`http://127.0.0.1:${port}/v1/ui/leads/${lead.lead_id}`, {
       headers: { ...tma(), Accept: 'application/json' },
     }).then((res) => res.json());
-    const items = week.days.flatMap((day) => day.items);
-    assert.equal(items.some((item) => item.status === 'gebucht'), true);
+    assert.equal(shownAfter.lead.booking_status, 'awaiting_freigabe');
     assert.match(STOP_LINE, /STOP/);
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));

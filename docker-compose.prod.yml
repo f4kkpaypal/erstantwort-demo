@@ -31,6 +31,7 @@ services:
       TZ: Europe/Berlin
       ENGINE_PORT: 8787
       HOST: 0.0.0.0
+      TRUST_PROXY: "true"
       ENGINE_TOKEN: ${ENGINE_TOKEN:?set ENGINE_TOKEN via scripts/init_env.py}
       HASH_SALT: ${HASH_SALT:?set HASH_SALT via scripts/init_env.py}
       UI_PUBLIC_BASE: ${UI_PUBLIC_BASE:-http://127.0.0.1:18791}
@@ -57,6 +58,7 @@ services:
     environment:
       WEB_PORT: 8791
       HOST: 0.0.0.0
+      TRUST_PROXY: "true"
       ENGINE_URL: http://engine:8787
     ports:
       - "127.0.0.1:${WEB_PUBLISH_PORT:-18791}:8791"

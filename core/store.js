@@ -122,7 +122,7 @@ class MemoryStore {
 
   async logEvent(event) {
     const row = {
-      ts: new Date().toISOString(),
+      ts: event.ts || new Date().toISOString(),
       workflow: event.workflow || '',
       step: event.step || '',
       lead_id: event.lead_id || null,
@@ -130,10 +130,25 @@ class MemoryStore {
       status: event.status || '',
       event_code: event.event_code || '',
       grade: event.grade || null,
+      llm_model: event.llm_model || null,
+      tokens_in: Number(event.tokens_in) || 0,
+      tokens_out: Number(event.tokens_out) || 0,
       meta: redactMeta(event.meta || {}, event.names || []),
     };
     this.events.push(row);
     return row;
+  }
+
+  async sumTokensSince(iso) {
+    const from = Date.parse(iso);
+    let sum = 0;
+    for (const row of this.events) {
+      const ts = Date.parse(row.ts || 0);
+      if (Number.isFinite(from) && (!Number.isFinite(ts) || ts < from)) continue;
+      sum += Number(row.tokens_in) || 0;
+      sum += Number(row.tokens_out) || 0;
+    }
+    return sum;
   }
 
   async enqueueCrm(row) {
@@ -321,9 +336,10 @@ class PgStore {
     const meta = redactMeta(event.meta || {}, event.names || []);
     await this.pool.query(
       `INSERT INTO ops.event_log
-        (workflow, step, lead_id, message_id_hash, status, event_code, grade, meta, llm_model, tokens_in, tokens_out)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)`,
+        (ts, workflow, step, lead_id, message_id_hash, status, event_code, grade, meta, llm_model, tokens_in, tokens_out)
+       VALUES (COALESCE($1::timestamptz, now()), $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)`,
       [
+        event.ts || null,
         event.workflow || '',
         event.step || '',
         event.lead_id || null,
@@ -337,6 +353,16 @@ class PgStore {
         event.tokens_out || null,
       ],
     );
+  }
+
+  async sumTokensSince(iso) {
+    const res = await this.pool.query(
+      `SELECT COALESCE(SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)), 0)::int AS n
+       FROM ops.event_log
+       WHERE ts >= $1::timestamptz`,
+      [iso],
+    );
+    return res.rows[0].n;
   }
 
   async enqueueCrm(row) {

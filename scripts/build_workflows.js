@@ -246,7 +246,7 @@ function buildWf02() {
   const nodes = [
     manual('wf02-manual', 'Manual CRM contract', [0, 220]),
     http('wf02-get', 'CRM contract', [300, 220], 'GET', '/v1/crm/contract'),
-    sticky('wf02-note', 'Hinweis CRM', [0, 0], 'Этот срез пишет лид в Google Sheet «Ihr CRM (Demo)». Propstack — первый следующий CRM и здесь отвечает NOT_IMPLEMENTED. Секреты Google лежат в .env движка, не в n8n.'),
+    sticky('wf02-note', 'Hinweis CRM', [0, 0], 'Этот срез пишет лид в Google Sheet «Ihr CRM (Demo)». Propstack не реализован: API-клиента нет и он не обещан. Секреты Google лежат в .env движка, не в n8n.'),
   ];
   const connections = {};
   link(connections, 'Manual CRM contract', 'CRM contract');

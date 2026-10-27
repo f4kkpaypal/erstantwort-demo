@@ -1,0 +1,14 @@
+# Render Blueprint: free demo test of the Erstantwort Mini App (fictional data only).
+services:
+  - type: web
+    name: erstantwort-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile.free
+    plan: free
+    region: frankfurt
+    healthCheckPath: /healthz
+    envVars:
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        value: "5031998736"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false   # entered by the owner in the Render dashboard, never in git

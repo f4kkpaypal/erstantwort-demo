@@ -1,0 +1,12 @@
+node_modules
+var
+.env
+uploads
+agent-tools
+test
+support
+.git
+*.log
+.n8n
+coverage
+dist

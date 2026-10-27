@@ -1,0 +1,14 @@
+node_modules/
+var/
+.env
+bureaus/*/.env
+bureaus/*/data/
+*.log
+.n8n/
+dist/
+coverage/
+.DS_Store
+uploads/
+agent-tools/
+__pycache__/
+*.pyc

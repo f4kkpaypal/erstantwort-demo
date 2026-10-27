@@ -1,0 +1,37 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# n8n: webhooks public, editor only from the office IPs.
+{$SITE_ADDRESS} {
+	@webhooks path /webhook /webhook/* /webhook-waiting /webhook-waiting/*
+	handle @webhooks {
+		reverse_proxy 127.0.0.1:5678
+	}
+
+	@closed path /form /form/* /mcp /mcp/*
+	handle @closed {
+		respond "forbidden" 403
+	}
+
+	@editor remote_ip 127.0.0.1 {$EDITOR_ALLOW_CIDRS:127.0.0.1}
+	handle @editor {
+		reverse_proxy 127.0.0.1:5678
+	}
+
+	handle {
+		respond "forbidden" 403
+	}
+}
+
+# Mini App. The engine stays on localhost. Only its health check is published.
+{$APP_ADDRESS} {
+	handle /engine/v1/health {
+		rewrite * /v1/health
+		reverse_proxy 127.0.0.1:{$ENGINE_PUBLISH_PORT:18787}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:{$WEB_PUBLISH_PORT:18791}
+	}
+}

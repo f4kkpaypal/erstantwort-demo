@@ -1,0 +1,12 @@
+# Annahme eines allgemeinen Eigentümer-Formats, keinem Portal zugeordnet.
+Annahme-Format: eigentuemer-lead
+Objektart: Grundstück
+Ort: Nürnberg
+Stadtteil: Erlenstegen
+Verkauf: später
+Bewertungstermin: nein
+Anrede: Frau
+Vorname: Aylin
+Nachname: Demir
+Objekt: Grundstück in Erlenstegen
+Nachricht: Demo, erfunden.

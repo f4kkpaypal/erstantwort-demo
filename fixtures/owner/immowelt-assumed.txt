@@ -1,0 +1,15 @@
+# Annahme, kein Originalschreiben von Immowelt.
+# Der Adapter erwartet diese Beschriftung. Echte Portal-Adressen stehen hier nicht.
+Annahme-Format: immowelt-eigentuemer
+Objektart: Wohnung
+Ort: Nürnberg
+Stadtteil: Gostenhof
+Flaeche_qm: 85
+Verkauf: bis_3_monate
+Bewertungstermin: ja
+Anrede: Frau
+Vorname: Klara
+Nachname: Hoffmann
+Telefon: +49 911 1000001
+Objekt: Wohnung in Gostenhof
+Nachricht: Ich möchte die Wohnung verkaufen. Demo.

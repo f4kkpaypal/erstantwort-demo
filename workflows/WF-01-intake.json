@@ -1,0 +1,1072 @@
+{
+  "id": "Wf01IntakeLoom01",
+  "name": "WF-01 Intake",
+  "active": false,
+  "nodes": [
+    {
+      "id": "wf01-note",
+      "name": "Hinweis Loom",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -20
+      ],
+      "parameters": {
+        "content": "Loom-срез. Активируйте только этот workflow.\nIMAP-credential «IMAP Makler» повесьте на N01 после импорта. Папку Autopilot, если она есть, укажите в mailbox.\nManual Demo E01 и E11 идут в движок без почты. Сначала E01, потом E11.\nЧерновик ничего не отправляет, пока SEND_MODE не auto. В Telegram нет имени, почты и телефона.",
+        "width": 520,
+        "height": 180,
+        "color": 4
+      }
+    },
+    {
+      "id": "wf01-e01",
+      "name": "Manual Demo E01",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf01-get-e01",
+      "name": "GET Demo E01",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://engine:8787/v1/demo/fixture/E01",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-e11",
+      "name": "Manual Demo E11",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf01-get-e11",
+      "name": "GET Demo E11",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://engine:8787/v1/demo/fixture/E11",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-imap",
+      "name": "N01 IMAP",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "format": "resolved",
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]",
+          "trackLastMessageId": false
+        }
+      }
+    },
+    {
+      "id": "wf01-strip",
+      "name": "N00 Strip attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nreturn items.map((item) => {\n  const json = { ...item.json };\n  let xml = '';\n  let other = false;\n  const binary = item.binary || {};\n  for (const key of Object.keys(binary)) {\n    const bin = binary[key] || {};\n    const filename = String(bin.fileName || '').toLowerCase();\n    const mime = String(bin.mimeType || '').toLowerCase();\n    const isXml = filename.endsWith('.xml') || mime.includes('xml');\n    if (isXml && bin.data) xml = Buffer.from(bin.data, 'base64').toString('utf8');\n    else if (bin.data || bin.fileName) other = true;\n  }\n  if (xml) json.xml_raw_attachment = xml;\n  if (other) json.has_other_attachment = true;\n  return { json };\n});"
+      }
+    },
+    {
+      "id": "wf01-n02",
+      "name": "N02 Normalize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/normalize",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n03",
+      "name": "N03 Dedup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/dedup",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-if",
+      "name": "IF Halt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "halt-is-true",
+              "leftValue": "={{ $json.halt }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "wf01-stop",
+      "name": "Stop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf01-route",
+      "name": "Switch route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1340,
+        460
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route-inquiry",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "inquiry",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "inquiry"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route-reply",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "reply",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reply"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "wf01-n06",
+      "name": "N06 Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/extract",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n07",
+      "name": "N07 Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        280
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nreturn items.map((item) => ({\n  json: {\n    ...item.json,\n    validated: item.json.halt !== true && Boolean(item.json.lead),\n  },\n}));"
+      }
+    },
+    {
+      "id": "wf01-n11",
+      "name": "N11 Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2140,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/score",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-busy",
+      "name": "WF-03 get_busy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/busy",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n13",
+      "name": "N13 Slots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/slots",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n14",
+      "name": "N14 Compose",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2920,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/compose",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n19",
+      "name": "N19 Send",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3180,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-crm",
+      "name": "WF-02 upsert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/crm",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-n21",
+      "name": "N21 Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3700,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/telegram",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-r01",
+      "name": "R01 Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        620
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/reply/match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-r02",
+      "name": "R02 Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1900,
+        620
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/reply/classify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-raction",
+      "name": "Switch reply_action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2160,
+        620
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "action-stop",
+                    "leftValue": "={{ $json.reply_action }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "stop"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "action-book",
+                    "leftValue": "={{ $json.reply_action }}",
+                    "rightValue": "book",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "book"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "wf01-rstop",
+      "name": "R-stop",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/reply/stop",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-rbook",
+      "name": "R04–R06 Book",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        680
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/reply/book",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf01-rhuman",
+      "name": "R-human",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        840
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/step/reply/human",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Demo E01": {
+      "main": [
+        [
+          {
+            "node": "GET Demo E01",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Demo E01": {
+      "main": [
+        [
+          {
+            "node": "N02 Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Demo E11": {
+      "main": [
+        [
+          {
+            "node": "GET Demo E11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Demo E11": {
+      "main": [
+        [
+          {
+            "node": "N02 Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N01 IMAP": {
+      "main": [
+        [
+          {
+            "node": "N00 Strip attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N00 Strip attachments": {
+      "main": [
+        [
+          {
+            "node": "N02 Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N02 Normalize": {
+      "main": [
+        [
+          {
+            "node": "N03 Dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N03 Dedup": {
+      "main": [
+        [
+          {
+            "node": "IF Halt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Halt": {
+      "main": [
+        [
+          {
+            "node": "Stop",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch route": {
+      "main": [
+        [
+          {
+            "node": "N06 Extract",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "R01 Match",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N06 Extract": {
+      "main": [
+        [
+          {
+            "node": "N07 Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N07 Validate": {
+      "main": [
+        [
+          {
+            "node": "N11 Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N11 Score": {
+      "main": [
+        [
+          {
+            "node": "WF-03 get_busy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF-03 get_busy": {
+      "main": [
+        [
+          {
+            "node": "N13 Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N13 Slots": {
+      "main": [
+        [
+          {
+            "node": "N14 Compose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N14 Compose": {
+      "main": [
+        [
+          {
+            "node": "N19 Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N19 Send": {
+      "main": [
+        [
+          {
+            "node": "WF-02 upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF-02 upsert": {
+      "main": [
+        [
+          {
+            "node": "N21 Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "R01 Match": {
+      "main": [
+        [
+          {
+            "node": "R02 Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "R02 Classify": {
+      "main": [
+        [
+          {
+            "node": "Switch reply_action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch reply_action": {
+      "main": [
+        [
+          {
+            "node": "R-stop",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "R04–R06 Book",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "R-human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "id": "Wf03CalendarBusy",
+  "name": "WF-03 Calendar",
+  "active": false,
+  "nodes": [
+    {
+      "id": "wf03-manual",
+      "name": "Manual Calendar contract",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf03-get",
+      "name": "Calendar contract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://engine:8787/v1/calendar/contract",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf03-note",
+      "name": "Hinweis Kalender",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "content": "Свободные окна считает движок. В событии только «Besichtigung {ID} · {Lead}», без имени и контактов. WF-01 вызывает тот же шаг узлом WF-03 get_busy.",
+        "width": 420,
+        "height": 220,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Manual Calendar contract": {
+      "main": [
+        [
+          {
+            "node": "Calendar contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

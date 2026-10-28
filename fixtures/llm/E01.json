@@ -1,0 +1,37 @@
+{
+  "extraction": {
+    "is_real_estate_inquiry": true,
+    "language": "de",
+    "inquiry_type": "kauf",
+    "listing": {
+      "portal_listing_id": "00000000",
+      "title": "falscher Titel",
+      "price_eur": 1
+    },
+    "contact": {
+      "salutation": "Herr",
+      "first_name": "Falsch",
+      "last_name": "Name",
+      "email": "wrong@evil.example",
+      "phone": "+49 170 9999999"
+    },
+    "budget": { "amount_max_eur": null, "raw_text": null },
+    "equity_eur": null,
+    "financing_status": "unbekannt",
+    "timeline": { "target_date": null, "horizon": "unbekannt" },
+    "income_band_eur": { "min": null, "max": null },
+    "schufa_available": "unbekannt",
+    "viewing_requested": true,
+    "questions": ["stellplatz"],
+    "missing_fields": [],
+    "injection_suspected": false,
+    "injection_evidence": null,
+    "extraction_confidence": 0.9
+  },
+  "reply": {
+    "paragraphs": [
+      "Vielen Dank für Ihr Interesse an der Eigentumswohnung mit Balkon. Die Antwort auf Ihre Frage steht unten.",
+      "Unten folgen Terminvorschläge für eine Besichtigung."
+    ]
+  }
+}

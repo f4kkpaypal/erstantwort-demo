@@ -1,0 +1,162 @@
+name: anfragen-autopilot
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-n8n}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD via scripts/init_env.py}
+      POSTGRES_DB: n8n
+      TZ: Europe/Berlin
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d n8n"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD via scripts/init_env.py}@postgres:5432/makler
+      DATA_DIR: /data
+      GENERIC_TIMEZONE: Europe/Berlin
+      TZ: Europe/Berlin
+      ENGINE_PORT: 8787
+      HOST: 0.0.0.0
+      TRUST_PROXY: "true"
+      ENGINE_TOKEN: ${ENGINE_TOKEN:?set ENGINE_TOKEN via scripts/init_env.py}
+      HASH_SALT: ${HASH_SALT:?set HASH_SALT via scripts/init_env.py}
+      UI_PUBLIC_BASE: ${UI_PUBLIC_BASE:-http://127.0.0.1:18791}
+    volumes:
+      - engine_data:/data
+    ports:
+      - "127.0.0.1:${ENGINE_PUBLISH_PORT:-18787}:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "web/server.js"]
+    environment:
+      WEB_PORT: 8791
+      HOST: 0.0.0.0
+      TRUST_PROXY: "true"
+      ENGINE_URL: http://engine:8787
+    ports:
+      - "127.0.0.1:${WEB_PUBLISH_PORT:-18791}:8791"
+    depends_on:
+      engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8791/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:2.44.5
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD via scripts/init_env.py}
+      GENERIC_TIMEZONE: Europe/Berlin
+      TZ: Europe/Berlin
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY via scripts/init_env.py}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      N8N_SECURE_COOKIE: "true"
+      N8N_PROXY_HOPS: 1
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    network_mode: host
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      APP_ADDRESS: ${APP_ADDRESS}
+      EDITOR_ALLOW_CIDRS: ${EDITOR_ALLOW_CIDRS:-127.0.0.1}
+      ENGINE_PUBLISH_PORT: ${ENGINE_PUBLISH_PORT:-18787}
+      WEB_PUBLISH_PORT: ${WEB_PUBLISH_PORT:-18791}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - n8n
+      - web
+      - engine
+    restart: unless-stopped
+
+  watch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "scripts/watch.js"]
+    env_file:
+      - .env
+    environment:
+      HEALTH_URL: http://engine:8787/v1/health
+      WEB_HEALTH_URL: http://web:8791/healthz
+      DATA_DIR: /data
+      WATCH_LOOP: "1"
+      WATCH_INTERVAL_SECONDS: ${WATCH_INTERVAL_SECONDS:-300}
+    volumes:
+      - engine_data:/data
+    depends_on:
+      engine:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  n8n_data:
+  engine_data:
+  caddy_data:
+  caddy_config:

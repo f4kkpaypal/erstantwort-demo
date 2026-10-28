@@ -1,0 +1,31 @@
+{
+  "name": "anfragen-autopilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Anfragen-Autopilot für Makler — Loom slice. n8n orchestrates, this package holds the tested lead pipeline.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node engine/server.js",
+    "demo": "node scripts/demo_local.js",
+    "demo:ui": "node web/server.js",
+    "build:workflows": "node scripts/build_workflows.js",
+    "ops:backup": "node scripts/ops.js backup",
+    "ops:restore-check": "node scripts/ops.js restore-check",
+    "ops:health": "node scripts/watch.js",
+    "erase": "node scripts/erase.js",
+    "office:check": "node scripts/office.js check",
+    "battle": "sh scripts/battle.sh",
+    "landing": "node landing/render.js",
+    "demo:intl": "node scripts/demo_intl.js",
+    "holdout": "node scripts/holdout.js"
+  },
+  "dependencies": {
+    "luxon": "^3.7.2",
+    "nodemailer": "^7.0.11",
+    "pg": "^8.16.3"
+  }
+}

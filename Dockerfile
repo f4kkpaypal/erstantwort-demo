@@ -1,0 +1,19 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY core ./core
+COPY engine ./engine
+COPY web ./web
+COPY ui ./ui
+COPY db ./db
+COPY fixtures ./fixtures
+COPY scripts ./scripts
+
+ENV NODE_ENV=production
+EXPOSE 8787
+
+CMD ["node", "engine/server.js"]

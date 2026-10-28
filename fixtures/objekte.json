@@ -1,0 +1,53 @@
+[
+  {
+    "portal_listing_id": "63843270",
+    "title": "3-Zi.-Eigentumswohnung mit Balkon",
+    "price_eur": 450000,
+    "kaltmiete_eur": null,
+    "warmmiete_eur": null,
+    "stellplatz_text": "Ein Tiefgaragenstellplatz ist vorhanden und kann separat angemietet werden.",
+    "provision_text": "Die Käuferprovision beträgt 3,57 Prozent einschließlich MwSt.",
+    "nebenkosten_hausgeld_text": "Das monatliche Hausgeld beträgt 320 Euro, darin ist eine Rücklage enthalten.",
+    "energieausweis_text": "Energieausweis liegt vor, Effizienzklasse C, Endenergiebedarf 98 kWh/(m²·a).",
+    "verfuegbar_ab_text": "Übergabe nach Kaufvertragsabschluss und Grundbucheintrag.",
+    "haustiere_text": "Haustiere sind nach Vereinbarung mit der Eigentümergemeinschaft möglich.",
+    "zustand_text": "Die Wohnung ist gepflegt und bezugsbereit.",
+    "booking_mode": "individual",
+    "group_slots": "",
+    "viewing_location": "Treffpunkt Hauseingang, Warschauer Straße 12, 10243 Berlin"
+  },
+  {
+    "portal_listing_id": "81220011",
+    "title": "2-Zi.-Wohnung zur Miete, Friedrichshain",
+    "price_eur": null,
+    "kaltmiete_eur": 980,
+    "warmmiete_eur": 1180,
+    "stellplatz_text": "",
+    "provision_text": "Für die Mietpartei fällt keine Provision an.",
+    "nebenkosten_hausgeld_text": "Nebenkostenabschlag 200 Euro monatlich, Heizung nach Verbrauch.",
+    "energieausweis_text": "Energieausweis liegt vor, Effizienzklasse D.",
+    "verfuegbar_ab_text": "Bezugsfrei ab dem 01.12.2026.",
+    "haustiere_text": "Kleintiere sind erlaubt.",
+    "zustand_text": "Die Wohnung wurde frisch gestrichen.",
+    "booking_mode": "individual",
+    "group_slots": "",
+    "viewing_location": "Treffpunkt Hauseingang, Boxhagener Straße 18, 10245 Berlin"
+  },
+  {
+    "portal_listing_id": "70011224",
+    "title": "1-Zi.-Wohnung, Kreuzberg",
+    "price_eur": null,
+    "kaltmiete_eur": 740,
+    "warmmiete_eur": 890,
+    "stellplatz_text": "",
+    "provision_text": "",
+    "nebenkosten_hausgeld_text": "",
+    "energieausweis_text": "Energieausweis liegt vor.",
+    "verfuegbar_ab_text": "Bezugsfrei nach Vereinbarung.",
+    "haustiere_text": "",
+    "zustand_text": "",
+    "booking_mode": "individual",
+    "group_slots": "",
+    "viewing_location": "Treffpunkt wird im Bestätigungsschreiben genannt."
+  }
+]

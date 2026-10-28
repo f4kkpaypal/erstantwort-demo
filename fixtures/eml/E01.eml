@@ -1,0 +1,21 @@
+From: ImmoScout24 <noreply@immobilienscout24.de>
+To: makler@lead.testdomain.de
+Subject: Kontaktanfrage zu Ihrem Angebot 63843270 =?UTF-8?Q?=E2=80=93?= 3-Zi.-Eigentumswohnung mit Balkon
+Date: Wed, 21 Oct 2026 10:00:00 +0200
+Message-ID: <e01.portal.001@immobilienscout24.de>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+X-Fixture: E01
+Auto-Submitted: no
+
+Sehr geehrte Damen und Herren, ich interessiere mich sehr für die Wohnung und würde sie gerne besichtigen,
+idealerweise noch diese Woche. Ist ein Stellplatz dabei? Viele Grüße, Anna Schmidt
+
+<openimmo_feedback><version>1.2.5</version><sender><name>IS24</name><regi_id>IS24</regi_id></sender>
+ <objekt><portal_obj_id>63843270</portal_obj_id><bezeichnung>3-Zi.-Eigentumswohnung mit Balkon</bezeichnung>
+  <ort>10243 Berlin</ort><preis>450.000,00 €</preis>
+  <interessent><anrede>Frau</anrede><vorname>Anna</vorname><nachname>Schmidt</nachname>
+   <tel>+49 30 0000001</tel><email>anna.schmidt@lead.testdomain.de</email>
+   <anfrage>Gewünschter Einzugstermin: 01.02.2027; Eigenkapital: 100.000 - 125.000€; Finanzrahmen geprüft: Ja; SCHUFA-Bonitätscheck: Nein</anfrage>
+  </interessent></objekt></openimmo_feedback>

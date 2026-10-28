@@ -1,0 +1,128 @@
+{
+  "id": "Wf06ReplyHandler",
+  "name": "WF-06 Reply",
+  "active": false,
+  "nodes": [
+    {
+      "id": "wf06-manual",
+      "name": "Manual Reply E11",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf06-get",
+      "name": "GET Demo E11",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        240
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://engine:8787/v1/demo/fixture/E11",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf06-run",
+      "name": "Intake run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8787/v1/intake/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf06-note",
+      "name": "Hinweis Antwort",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "content": "Не активируйте WF-06 вместе с WF-01: оба не должны читать IMAP. Сначала прогоните E01 в WF-01, затем это ручное повторение ответа «Nr. 2». Если demo_state пуст, движок вернёт demo_state_missing.",
+        "width": 420,
+        "height": 220,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Manual Reply E11": {
+      "main": [
+        [
+          {
+            "node": "GET Demo E11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Demo E11": {
+      "main": [
+        [
+          {
+            "node": "Intake run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

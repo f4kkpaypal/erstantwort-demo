@@ -1,0 +1,420 @@
+{
+ "meta": {
+  "version": 1,
+  "purpose": "Сценарии D26–D29 (несколько сообщений, отказ, ручной ответ, зависший sending, дедуп Telegram, Business, сводка). Данные вымышлены. Файл входит в репозиторий как fixtures/intl/scenarios.json.",
+  "now": "2026-10-28T08:30:00+04:00"
+ },
+ "scenarios": [
+  {
+   "id": "SC1",
+   "name": "Второе сообщение клиента (S11, 5.1а)",
+   "steps": [
+    {
+     "do": "inbound",
+     "channel": "wa_sim",
+     "sender_id": "sim:s1",
+     "property_id": "P1",
+     "text": "Is the Marina flat still available?",
+     "expect": {
+      "intent": "avail",
+      "status": "pending_approval",
+      "options": "3-4"
+     }
+    },
+    {
+     "do": "send",
+     "option": "any",
+     "expect": {
+      "ok": true,
+      "status": "sent"
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "wa_sim",
+     "sender_id": "sim:s1",
+     "property_id": "P1",
+     "text": "Can you do 100,000 AED per year? Can I see it tomorrow?",
+     "expect": {
+      "same_lead": true,
+      "intent": "viewing",
+      "also": [
+       "price"
+      ],
+      "budget": {
+       "amount": 100000,
+       "currency": "AED",
+       "period": "year"
+      },
+      "timing_class": "concrete",
+      "draft_reset": true,
+      "status": "pending_approval",
+      "options": "3-4"
+     }
+    },
+    {
+     "do": "send",
+     "option": "same_text_as_first_send_if_template_equal",
+     "expect": {
+      "ok": true,
+      "note": "повтор того же шаблона после нового сообщения клиента разрешён (reply_to_message_id другой)"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC2",
+   "name": "Отказ действует на все лиды отправителя (5.1б)",
+   "steps": [
+    {
+     "do": "inbound",
+     "channel": "telegram",
+     "sender_id": "tg:9200000001",
+     "property_id": "P1",
+     "text": "Can I view the flat Friday?",
+     "expect": {
+      "status": "pending_approval"
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "telegram",
+     "sender_id": "tg:9200000002",
+     "property_id": "P1",
+     "text": "Is it available?",
+     "expect": {
+      "status": "pending_approval",
+      "note": "другой отправитель"
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "telegram",
+     "sender_id": "tg:9200000001",
+     "property_id": "P1",
+     "text": "STOP",
+     "expect": {
+      "status": "stopped",
+      "optout": true
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "telegram",
+     "sender_id": "tg:9200000001",
+     "property_id": "P2",
+     "text": "What is the price?",
+     "expect": {
+      "new_lead": true,
+      "status": "stopped",
+      "options": 0
+     }
+    },
+    {
+     "do": "send",
+     "lead": "sender 9200000001 / P1",
+     "expect": {
+      "http": 409,
+      "error_code": "lead_stopped"
+     }
+    },
+    {
+     "do": "check",
+     "lead": "sender 9200000002",
+     "expect": {
+      "status": "pending_approval",
+      "optout": false
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC3",
+   "name": "Ручной ответ из review достижим (N1)",
+   "steps": [
+    {
+     "do": "inbound",
+     "channel": "wa_sim",
+     "sender_id": "sim:s3",
+     "property_id": "P4",
+     "text": "asdf ### click here: promo-link",
+     "expect": {
+      "status": "review",
+      "options": 0,
+      "reply_manually_button": true
+     }
+    },
+    {
+     "do": "put_draft",
+     "text": "Hello! Could you tell me what you are looking for?",
+     "option_id": null,
+     "expect": {
+      "ok": true
+     }
+    },
+    {
+     "do": "send",
+     "manual": true,
+     "expect": {
+      "ok": true,
+      "status": "sent",
+      "appended": "STOP-строка без AI-note"
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "wa_sim",
+     "sender_id": "sim:s3b",
+     "property_id": "P1",
+     "text": "Can I view it Friday?",
+     "expect": {
+      "status": "pending_approval"
+     }
+    },
+    {
+     "do": "reject",
+     "expect": {
+      "status": "review",
+      "draft_cleared": true
+     }
+    },
+    {
+     "do": "put_draft",
+     "text": "Hi, Friday 11:00 works if you confirm with the broker.",
+     "option_id": null,
+     "expect": {
+      "ok": true
+     }
+    },
+    {
+     "do": "send",
+     "manual": true,
+     "expect": {
+      "ok": true,
+      "status": "sent"
+     }
+    },
+    {
+     "do": "inbound",
+     "channel": "wa_sim",
+     "sender_id": "sim:s3c",
+     "property_id": "P1",
+     "text": "STOP",
+     "expect": {
+      "status": "stopped"
+     }
+    },
+    {
+     "do": "send",
+     "manual": true,
+     "expect": {
+      "http": 409,
+      "error_code": "lead_stopped"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC4",
+   "name": "Зависший sending (N9)",
+   "steps": [
+    {
+     "do": "db_seed",
+     "table": "i_send",
+     "status": "sending",
+     "created_at_age_sec": 300,
+     "expect": {}
+    },
+    {
+     "do": "restart_server",
+     "expect": {
+      "i_send_status": "failed",
+      "reason": "stale_sending"
+     }
+    },
+    {
+     "do": "send",
+     "expect": {
+      "ok": true,
+      "note": "повтор разрешён; UI показывает «Previous attempt state unknown, check the chat»"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC5",
+   "name": "Дедуп входящих Telegram (N10)",
+   "steps": [
+    {
+     "do": "telegram_update",
+     "update_id": 1,
+     "chat_id": "9300000001",
+     "message_id": 77,
+     "text": "Is it available?",
+     "expect": {
+      "messages_in": 1
+     }
+    },
+    {
+     "do": "telegram_update",
+     "update_id": 1,
+     "chat_id": "9300000001",
+     "message_id": 77,
+     "text": "Is it available?",
+     "expect": {
+      "messages_in": 1,
+      "note": "повторная доставка"
+     }
+    },
+    {
+     "do": "telegram_update",
+     "update_id": 2,
+     "chat_id": "9300000002",
+     "message_id": 77,
+     "text": "Is it available?",
+     "expect": {
+      "messages_in": 2,
+      "note": "тот же message_id в другом чате — другое сообщение"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC6",
+   "name": "Telegram Business: окно 24 ч и права (N17)",
+   "steps": [
+    {
+     "do": "business_message",
+     "business_connection_id": "bc_test_1",
+     "chat_id": "9400000001",
+     "can_reply": true,
+     "age_hours": 2,
+     "text": "Hi, price?",
+     "expect": {
+      "lead": true,
+      "send_allowed": true
+     }
+    },
+    {
+     "do": "business_message",
+     "business_connection_id": "bc_test_2",
+     "chat_id": "9400000002",
+     "can_reply": false,
+     "age_hours": 2,
+     "text": "Hi, price?",
+     "expect": {
+      "lead": true,
+      "send_allowed": false,
+      "error_code": "cannot_reply"
+     }
+    },
+    {
+     "do": "send_after_hours",
+     "chat_id": "9400000001",
+     "hours": 25,
+     "expect": {
+      "send_allowed": false,
+      "error_code": "window_closed"
+     }
+    },
+    {
+     "do": "business_message",
+     "chat_id": "9999999999",
+     "not_in_TG_TEST_LEAD_IDS": true,
+     "text": "Hi",
+     "expect": {
+      "lead": false,
+      "stored": false,
+      "logged": false,
+      "counter_dropped_non_test": 1
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC7",
+   "name": "Правка и удаление сообщения в Business (N15)",
+   "steps": [
+    {
+     "do": "business_message",
+     "chat_id": "9400000003",
+     "message_id": 5,
+     "text": "Can I view Friday?",
+     "expect": {
+      "lead": true,
+      "intent": "viewing"
+     }
+    },
+    {
+     "do": "edited_business_message",
+     "chat_id": "9400000003",
+     "message_id": 5,
+     "text": "Can I view Saturday?",
+     "expect": {
+      "same_lead": true,
+      "message_text_updated": true,
+      "no_new_lead": true
+     }
+    },
+    {
+     "do": "deleted_business_messages",
+     "chat_id": "9400000003",
+     "message_ids": [
+      5
+     ],
+     "expect": {
+      "message_text_blank": true,
+      "no_analysis": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC8",
+   "name": "Сводка: расписание, догоняющая отправка, по запросу (N2)",
+   "steps": [
+    {
+     "do": "set_clock",
+     "time": "2026-10-28T08:30:00+04:00",
+     "process": "awake",
+     "expect": {
+      "digest_sent": 1
+     }
+    },
+    {
+     "do": "set_clock",
+     "time": "2026-10-28T08:31:00+04:00",
+     "expect": {
+      "digest_sent": 1,
+      "note": "повтор в ту же минуту и сутки не шлёт"
+     }
+    },
+    {
+     "do": "restart_at",
+     "time": "2026-10-29T15:00:00+04:00",
+     "expect": {
+      "digest_sent": 2,
+      "label": "late",
+      "note": "процесс спал в 08:30: при старте/первом запросе после DIGEST_TIME отправляется один раз"
+     }
+    },
+    {
+     "do": "bot_command",
+     "text": "/digest",
+     "from": "allowed_id",
+     "expect": {
+      "digest_sent_on_demand": true
+     }
+    },
+    {
+     "do": "bot_command",
+     "text": "/digest",
+     "from": "foreign_id",
+     "expect": {
+      "digest_sent_on_demand": false
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+# Render Free is a test host only. The disk is wiped on sleep, restart and deploy.
+# Do not put real inquiries or personal data here. Production is a Hetzner VPS in the EU.
+services:
+  - type: web
+    name: erstantwort-intl-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile.free
+    plan: free
+    region: frankfurt
+    autoDeploy: false
+    healthCheckPath: /healthz
+    envVars:
+      - key: PRODUCT_MODE
+        value: intl
+      - key: CHANNEL_MODE
+        value: sim
+      - key: REAL_DATA_ALLOWED
+        value: "false"
+      - key: LLM_MODE
+        value: mock
+      - key: DEMO_UI_NO_AUTH
+        value: "false"
+      - key: BROKER_TZ
+        value: Asia/Dubai
+      - key: DIGEST_TIME
+        value: "08:30"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: AED_PER_USD
+        value: "3.6725"
+      - key: EPHEMERAL_DISK
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: TG_TEST_LEAD_IDS
+        sync: false
+      - key: HASH_SALT
+        generateValue: true

@@ -1,0 +1,37 @@
+{
+  "extraction": {
+    "is_real_estate_inquiry": true,
+    "language": "de",
+    "inquiry_type": "miete",
+    "listing": {
+      "portal_listing_id": "81220011",
+      "title": "2-Zi.-Wohnung zur Miete, Friedrichshain",
+      "price_eur": null
+    },
+    "contact": {
+      "salutation": "Frau",
+      "first_name": "Lisa",
+      "last_name": "Klein",
+      "email": "lisa.klein@lead.testdomain.de",
+      "phone": null
+    },
+    "budget": { "amount_max_eur": null, "raw_text": null },
+    "equity_eur": null,
+    "financing_status": "unbekannt",
+    "timeline": { "target_date": null, "horizon": "unbekannt" },
+    "income_band_eur": { "min": null, "max": null },
+    "schufa_available": "unbekannt",
+    "viewing_requested": true,
+    "questions": ["verfuegbarkeit"],
+    "missing_fields": ["budget", "timeline"],
+    "injection_suspected": false,
+    "injection_evidence": null,
+    "extraction_confidence": 0.86
+  },
+  "reply": {
+    "paragraphs": [
+      "Vielen Dank für Ihr Interesse an der Wohnung. Bitte teilen Sie uns noch Ihr Budget und den gewünschten Zeitraum mit.",
+      "Unten folgen ein Hinweis und Terminvorschläge für eine Besichtigung."
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+# Annahme, kein Originalschreiben von Heimziel.
+Annahme-Format: heimziel-eigentuemer
+Objektart: Haus
+Ort: Nürnberg
+Stadtteil: St. Johannis
+Flaeche_qm: 140
+Verkauf: 3_bis_6_monate
+Bewertungstermin: ja
+Anrede: Herr
+Vorname: Henrik
+Nachname: Vogel
+Telefon: +49 911 1000002
+Objekt: Haus in St. Johannis
+Nachricht: Demo, erfunden.

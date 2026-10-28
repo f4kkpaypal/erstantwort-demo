@@ -1,0 +1,170 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --ink: #1c1c1e;
+  --muted: #6e6e73;
+  --line: #e9e9ec;
+  --soft: #f2f2f4;
+  --dark: #2c2c2e;
+  --hot: #9a3412;
+  --hot-bg: #ffedd5;
+  --warm: #92400e;
+  --warm-bg: #fef3c7;
+  --cold: #3f3f46;
+  --cold-bg: #f4f4f5;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+
+.shell { max-width: 420px; margin: 0 auto; min-height: 100vh; padding: 12px 12px 96px; }
+.banner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.logo { font-weight: 700; letter-spacing: -0.04em; font-size: 22px; }
+h1 { font-size: 28px; margin: 8px 0 0; letter-spacing: -0.03em; }
+.sub { color: var(--muted); margin: 4px 0 14px; }
+.card {
+  background: var(--card);
+  border-radius: 24px;
+  padding: 16px;
+  margin: 0 0 12px;
+  box-shadow: 0 8px 30px rgba(28, 28, 30, 0.04);
+}
+.row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.muted { color: var(--muted); font-size: 13px; }
+.badge, .chip, .grade {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--soft);
+}
+.grade.HOT { background: var(--hot-bg); color: var(--hot); }
+.grade.WARM { background: var(--warm-bg); color: var(--warm); }
+.grade.COLD { background: var(--cold-bg); color: var(--cold); }
+.photo {
+  height: 168px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08), rgba(28,28,30,0.18)),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'><rect fill='%23d9d4cc' width='400' height='200'/><rect fill='%23efeae3' x='40' y='36' width='220' height='120' rx='8'/><rect fill='%23c5bfb6' x='250' y='70' width='90' height='86'/><rect fill='%238a9a7b' x='70' y='110' width='36' height='46'/><circle fill='%236e7f62' cx='88' cy='96' r='22'/></svg>") center/cover;
+  position: relative;
+}
+.photo .badge { position: absolute; left: 10px; top: 10px; background: #fff; }
+.price { font-size: 28px; font-weight: 650; margin: 12px 0 0; }
+.btn, .btn-dark {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--line);
+  color: var(--ink);
+}
+.btn-dark { background: var(--dark); color: #fff; }
+.btn-row { display: flex; gap: 8px; }
+.btn-row .btn, .btn-row .btn-dark { width: auto; flex: 1; }
+.nav {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: #fff;
+  border-top: 1px solid var(--line);
+  padding: 8px 4px 12px;
+}
+.nav button { border: 0; background: transparent; color: var(--muted); padding: 8px; }
+.nav button.active { color: var(--ink); font-weight: 650; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.metric { background: var(--soft); border-radius: 16px; padding: 12px; }
+.metric b { display: block; font-size: 22px; margin-top: 4px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; max-width: 100%; padding-bottom: 8px; }
+.chips button { border: 0; background: #fff; border-radius: 999px; padding: 8px 12px; white-space: nowrap; flex: 0 1 auto; }
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: min(360px, calc(100% - 24px));
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--dark);
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+.chips button.on { background: var(--dark); color: #fff; }
+.lead { text-align: left; width: 100%; border: 0; background: #fff; }
+.reasons { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.pre, textarea.draft {
+  white-space: pre-wrap;
+  background: var(--soft);
+  border-radius: 16px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+textarea.draft {
+  width: 100%;
+  min-height: 180px;
+  border: 0;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+.skeleton { height: 92px; border-radius: 24px; background: linear-gradient(90deg, #eee, #f7f7f7, #eee); margin-bottom: 12px; }
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(28,28,30,0.35);
+  display: grid;
+  place-items: end center;
+  padding: 16px;
+}
+.modal .card { width: min(420px, 100%); }
+label { display: block; font-size: 14px; margin: 12px 0 6px; }
+input, select {
+  width: 100%;
+  border: 0;
+  background: var(--soft);
+  border-radius: 12px;
+  padding: 12px;
+}
+.back { border: 0; background: transparent; padding: 0; color: var(--muted); }
+.form-body {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(28,28,30,0.25), rgba(28,28,30,0.55)),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 800'><rect fill='%23cfc8be' width='400' height='800'/><rect fill='%23f4efe8' x='30' y='80' width='250' height='180' rx='12'/><rect fill='%238a9a7b' x='60' y='210' width='40' height='50'/></svg>") center/cover;
+  display: grid;
+  align-items: end;
+}
+.sheet { background: #fff; border-radius: 28px 28px 0 0; padding: 18px 16px 28px; min-height: 70vh; }
+.steps { height: 4px; background: var(--line); border-radius: 99px; margin: 10px 0 16px; overflow: hidden; }
+.steps span { display: block; height: 4px; background: var(--dark); border-radius: 99px; width: 0; }
+.steps span.s1 { width: 33%; }
+.steps span.s2 { width: 67%; }
+.steps span.s3 { width: 100%; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+.check input { width: auto; margin-top: 3px; }
+.mockup { padding: 16px; }
+.phones { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.phones iframe { width: 390px; height: 780px; border: 0; border-radius: 28px; background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.12); }
+@media (max-width: 700px) {
+  .phones iframe { width: 100%; height: 70vh; }
+}

@@ -1,0 +1,74 @@
+{
+  "id": "Wf00TimezoneChck",
+  "name": "WF-00 Timezone",
+  "active": false,
+  "nodes": [
+    {
+      "id": "wf00-manual",
+      "name": "Manual Timezone",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf00-code",
+      "name": "L01 Timezone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { iso: $now.toISO(), zone: $now.zoneName, offsetName: $now.offsetNameShort } }];"
+      }
+    },
+    {
+      "id": "wf00-note",
+      "name": "Hinweis Zeitzone",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "content": "Проверка L01. В выходе zone должно быть Europe/Berlin, а время — берлинское. Если zone другое, у контейнера n8n не задан GENERIC_TIMEZONE.",
+        "width": 420,
+        "height": 220,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Manual Timezone": {
+      "main": [
+        [
+          {
+            "node": "L01 Timezone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

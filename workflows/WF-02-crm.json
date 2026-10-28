@@ -1,0 +1,86 @@
+{
+  "id": "Wf02SheetCrmDemo",
+  "name": "WF-02 CRM",
+  "active": false,
+  "nodes": [
+    {
+      "id": "wf02-manual",
+      "name": "Manual CRM contract",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf02-get",
+      "name": "CRM contract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://engine:8787/v1/crm/contract",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Engine Token"
+        }
+      }
+    },
+    {
+      "id": "wf02-note",
+      "name": "Hinweis CRM",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "content": "Этот срез пишет лид в Google Sheet «Ihr CRM (Demo)». Propstack не реализован: API-клиента нет и он не обещан. Секреты Google лежат в .env движка, не в n8n.",
+        "width": 420,
+        "height": 220,
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Manual CRM contract": {
+      "main": [
+        [
+          {
+            "node": "CRM contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

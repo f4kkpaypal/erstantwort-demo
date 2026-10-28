@@ -1,0 +1,36 @@
+{
+	auto_https off
+	admin off
+}
+
+:18080 {
+	@webhooks path /webhook /webhook/* /webhook-waiting /webhook-waiting/*
+	handle @webhooks {
+		reverse_proxy n8n:5678
+	}
+
+	@closed path /form /form/* /mcp /mcp/*
+	handle @closed {
+		respond "forbidden" 403
+	}
+
+	@editor remote_ip 127.0.0.1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+	handle @editor {
+		reverse_proxy n8n:5678
+	}
+
+	handle {
+		respond "forbidden" 403
+	}
+}
+
+:18081 {
+	handle /engine/v1/health {
+		rewrite * /v1/health
+		reverse_proxy engine:8787
+	}
+
+	handle {
+		reverse_proxy web:8791
+	}
+}

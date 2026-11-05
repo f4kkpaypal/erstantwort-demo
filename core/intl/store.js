@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS i_lead (
   budget_period TEXT, timing_class TEXT, timing_label TEXT, cash INTEGER, flags TEXT, non_text_type TEXT,
   score INTEGER, grade TEXT, reasons TEXT, analysis_source TEXT, status TEXT, pipeline TEXT, optout INTEGER DEFAULT 0,
   first_msg_at TEXT, last_msg_at TEXT, last_inbound_message_id TEXT, retention_until TEXT, business_connection_id TEXT,
-  clean_name TEXT, UNIQUE(channel, sender_hash, property_id)
+  clean_name TEXT, readiness TEXT, proposed_utc TEXT, UNIQUE(channel, sender_hash, property_id)
 );
 CREATE TABLE IF NOT EXISTS i_message (
   id TEXT PRIMARY KEY, lead_id TEXT, direction TEXT, text TEXT, kind TEXT, channel_msg_id TEXT,
@@ -45,8 +45,31 @@ CREATE TABLE IF NOT EXISTS i_audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, actor TEXT, action TEXT, lead_id TEXT, meta TEXT
 );
 CREATE TABLE IF NOT EXISTS i_settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS i_file (
+  id TEXT PRIMARY KEY,
+  property_id TEXT,
+  kind TEXT,
+  mime TEXT,
+  name TEXT,
+  bytes BLOB,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS i_time_hold (
+  broker_key TEXT NOT NULL,
+  start_utc TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  first_msg_at TEXT,
+  competition_due_at TEXT,
+  PRIMARY KEY (broker_key, start_utc)
+);
 CREATE TABLE IF NOT EXISTS i_tg_update (update_id INTEGER PRIMARY KEY);
 `;
+
+function ensureColumn(db, table, name, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((col) => col.name === name)) db.exec(ddl);
+}
 
 class IntlStore {
   constructor(file) {
@@ -55,6 +78,20 @@ class IntlStore {
     this.db = new DatabaseSync(file);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(SCHEMA);
+    ensureColumn(this.db, 'i_lead', 'readiness', 'ALTER TABLE i_lead ADD COLUMN readiness TEXT');
+    ensureColumn(this.db, 'i_lead', 'proposed_utc', 'ALTER TABLE i_lead ADD COLUMN proposed_utc TEXT');
+    for (const [name, type] of [
+      ['address', 'TEXT'],
+      ['district', 'TEXT'],
+      ['bedrooms', 'INTEGER'],
+      ['listing_url', 'TEXT'],
+      ['brochure_url', 'TEXT'],
+      ['plan_url', 'TEXT'],
+    ]) {
+      ensureColumn(this.db, 'i_property', name, `ALTER TABLE i_property ADD COLUMN ${name} ${type}`);
+    }
+    ensureColumn(this.db, 'i_draft', 'attachments', 'ALTER TABLE i_draft ADD COLUMN attachments TEXT');
+    ensureColumn(this.db, 'i_time_hold', 'competition_due_at', 'ALTER TABLE i_time_hold ADD COLUMN competition_due_at TEXT');
   }
 
   run(sql, params = []) { return this.db.prepare(sql).run(...params); }

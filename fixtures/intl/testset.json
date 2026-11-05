@@ -1276,14 +1276,13 @@
    "expected": {
     "intent": "unclear",
     "also": [],
-    "language": "other",
+    "language": "en",
     "budget": null,
     "timing_class": null,
     "cash": false,
     "flags": [
      "review",
-     "link",
-     "lang_other"
+     "link"
     ],
     "score": 0,
     "grade": "COLD",
@@ -1297,7 +1296,7 @@
      "status": "review"
     }
    },
-   "comment": "мусор со ссылкой; язык other: нет ≥2 EN-служебных слов и нет EN-ключевых слов"
+   "comment": "мусор со ссылкой; латиница считается английским, намерение неясно"
   },
   {
    "id": "T19",
@@ -1593,13 +1592,12 @@
    "expected": {
     "intent": "unclear",
     "also": [],
-    "language": "other",
+    "language": "en",
     "budget": null,
     "timing_class": null,
     "cash": false,
     "flags": [
-     "review",
-     "lang_other"
+     "review"
     ],
     "score": 0,
     "grade": "COLD",
@@ -1613,7 +1611,7 @@
      "status": "review"
     }
    },
-   "comment": "язык не EN/RU"
+   "comment": "латиница без кириллицы считается английским, даже если это не английские слова"
   },
   {
    "id": "T25",

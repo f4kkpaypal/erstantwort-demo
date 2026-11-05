@@ -24,8 +24,11 @@
     "holdout": "node scripts/holdout.js"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "luxon": "^3.7.2",
     "nodemailer": "^7.0.11",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.16.3"
   }
 }

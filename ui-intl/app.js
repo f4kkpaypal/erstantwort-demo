@@ -16,6 +16,17 @@ const state = {
   manual: false,
   slotIds: [],
   ephemeral: false,
+  propertyId: '',
+  dayKey: '',
+  addProperty: false,
+  ask: null,
+  notice: '',
+  serverSettings: null,
+  loadedLead: '',
+  loadedStatus: '',
+  picker: false,
+  attachments: [],
+  editProperty: null,
 };
 if (query.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
 
@@ -26,6 +37,7 @@ const ICO = {
   cal: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   home: '<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/></svg>',
   start: '<svg viewBox="0 0 24 24"><path d="M12 3l2.4 5 5.6.8-4 3.9.9 5.6-4.9-2.6-4.9 2.6.9-5.6-4-3.9 5.6-.8z"/></svg>',
+  box: '<svg viewBox="0 0 24 24"><path d="M3 7h18v12H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M10 12h4"/></svg>',
 };
 
 function captureLaunch() {
@@ -43,10 +55,17 @@ function captureLaunch() {
   const path = hash.replace(/^#\/?/, '').split('?')[0];
   const [screen, id] = path.split('/');
   if (screen === 'lead' && id) {
+    const nextId = decodeURIComponent(id);
+    if (state.leadId !== nextId) {
+      state.loadedLead = '';
+      state.loadedStatus = '';
+    }
     state.screen = 'lead';
-    state.leadId = decodeURIComponent(id);
-  } else if (['inbox', 'viewings', 'properties', 'setup', 'simulator'].includes(screen)) {
+    state.leadId = nextId;
+  } else if (['inbox', 'viewings', 'properties', 'setup', 'simulator', 'digest', 'archive'].includes(screen)) {
     state.screen = screen;
+    state.loadedLead = '';
+    state.loadedStatus = '';
   }
 }
 
@@ -141,6 +160,28 @@ async function api(pathname, options = {}) {
   return body;
 }
 
+function go(hash) {
+  if (location.hash === hash) {
+    boot().catch(fail);
+    return;
+  }
+  location.hash = hash;
+}
+
+function draftPayload() {
+  return {
+    text: state.draftText,
+    option_id: state.manual ? null : (state.option?.id || null),
+    edited: true,
+    slot_ids: state.slotIds || [],
+    attachments: state.attachments || [],
+  };
+}
+
+function errText(err) {
+  return err.body?.error_code || err.message || 'failed';
+}
+
 function tabs(waiting) {
   const items = [
     { id: 'inbox', href: '#/inbox', icon: ICO.inbox, key: 'inbox' },
@@ -159,7 +200,12 @@ function shell(inner, waiting) {
   document.documentElement.lang = state.lang;
   app.classList.toggle('has-act', inner.includes('class="actbar"'));
   const reset = state.ephemeral ? `<p class="reset-banner">${esc(t('resets'))}</p>` : '';
-  app.innerHTML = `${reset}${inner}${tabs(waiting)}`;
+  const demo = `<div class="demo" id="demoBanner">${esc(t('demoBar'))}</div>`;
+  const note = state.notice ? `<p class="toast" role="status">${esc(state.notice)}</p>` : '';
+  state.notice = '';
+  const ask = state.ask ? `<div class="backdrop top" id="askBg"></div><div class="sheet confirm" role="dialog"><p>${esc(state.ask.message)}</p><div class="btnrow"><button class="btn sec" id="askNo" type="button">${esc(t('cancelView'))}</button><button class="btn" id="askYes" type="button">${esc(state.ask.yes || t('confirmView'))}</button></div></div>` : '';
+  inner += ask;
+  app.innerHTML = `${reset}${demo}${note}${inner}${tabs(waiting)}`;
   app.querySelectorAll('[data-lang]').forEach((button) => {
     button.onclick = () => {
       state.lang = button.dataset.lang;
@@ -167,10 +213,20 @@ function shell(inner, waiting) {
       boot().catch(fail);
     };
   });
+  const no = document.getElementById('askNo');
+  if (no) no.onclick = () => { state.ask = null; boot().catch(fail); };
+  const yes = document.getElementById('askYes');
+  if (yes) yes.onclick = () => {
+    const run = state.ask && state.ask.run;
+    state.ask = null;
+    Promise.resolve(run && run()).catch((err) => { state.notice = errText(err); boot().catch(fail); });
+  };
+  const askBg = document.getElementById('askBg');
+  if (askBg) askBg.onclick = () => { state.ask = null; boot().catch(fail); };
 }
 
 function fail(err) {
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}<div class="card pad"><p>${esc(err.body?.message || err.message || 'Error')}</p></div>`, 0);
+  shell(`${bar()}<div class="card pad"><p>${esc(err.body?.message || err.message || 'Error')}</p></div>`, 0);
 }
 
 function channelChip(channel, iconOnly) {
@@ -179,7 +235,12 @@ function channelChip(channel, iconOnly) {
   return `<span class="ch ${wa ? 'wa' : 'tg'}">${wa ? ICO.wa : ICO.tg}${name}</span>`;
 }
 
+function mark(lead) {
+  return lead.readiness || lead.grade || 'COLD';
+}
+
 function statusLabel(lead) {
+  if (lead.status === 'archived') return t('archiveTitle');
   if (lead.status === 'pending_approval') return t('needsOk');
   if (lead.status === 'review') return t('needsReview');
   if (lead.status === 'stopped') return t('optedOut');
@@ -260,29 +321,62 @@ async function showInbox() {
   const leads = list.leads || [];
   const waiting = leads.filter((lead) => lead.status === 'pending_approval' || lead.status === 'review');
   const rest = leads.filter((lead) => lead.status !== 'pending_approval' && lead.status !== 'review');
-  const match = (lead) => state.filter === 'ALL' || lead.grade === state.filter;
+  const match = (lead) => (state.filter === 'ALL' || mark(lead) === state.filter) && (!state.propertyId || lead.property_id === state.propertyId);
   const shownWait = waiting.filter(match);
   const shownDone = rest.filter(match);
   const pending = leads.filter((lead) => lead.status === 'pending_approval');
   state.badge = waiting.length;
   state.leadRows = leads;
   const value = (digest.listed_value || []).map(moneyLine).join(' · ');
-  const row = (lead) => `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(lead.grade)}"></span>
-    <div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi> <span class="g ${esc(lead.grade)}">${esc(lead.grade)} ${esc(lead.score)}</span></div>
+  const row = (lead) => `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(mark(lead))}"></span>
+    <div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi> <span class="g ${esc(mark(lead))}">${esc(mark(lead))}</span></div>
     <div class="s">${channelChip(lead.channel, true)} · ${esc(propertyTitle(props.properties, lead.property_id))}</div></div>
     <div class="r"><b class="${lead.status === 'pending_approval' || lead.status === 'review' ? 'need' : ''}">${esc(statusLabel(lead))}</b>${esc(clock(lead.first_msg_at))}</div></a>`;
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}
-    <div class="hd"><h1>${esc(t('inbox'))}</h1><p>${esc(headDate())} · ${esc(fill('leadsLine', leads.length))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
+  const propName = state.propertyId ? propertyTitle(props.properties, state.propertyId) : '';
+  shell(`${bar()}
+    <div class="hd"><div class="hd-row"><h1>${esc(t('inbox'))}</h1><a class="archive-btn" id="openArchive" href="#/archive">${ICO.box}<span>${esc(t('archive'))}</span></a></div><p>${esc(headDate())} · ${esc(fill('leadsLine', leads.length))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
     <div class="stats"><div><b>${leads.length}</b>${esc(t('leadsTile'))}</div><div><b>${pending.length}</b>${esc(t('toApprove'))}</div></div>
     ${pending.length ? `<a class="btn queuebtn" href="#/lead/${esc(pending[0].id)}">${esc(fill('reviewN', pending.length))}</a>` : ''}
+    <button class="btn sec queuebtn" id="openDigest" type="button">${esc(t('digestOpen'))}</button>
     <div class="seg">${['ALL', 'HOT', 'WARM', 'COLD'].map((grade) => `<button type="button" data-f="${grade}" class="${state.filter === grade ? 'on' : ''}">${grade === 'ALL' ? esc(t('all')) : grade}</button>`).join('')}</div>
+    ${propName ? `<p class="foot">${esc(t('filterProperty'))}: ${esc(propName)} <button class="link inline" id="clearProp" type="button">${esc(t('clearFilter'))}</button></p>` : ''}
     ${shownWait.length ? `<div class="sh"><span>${esc(t('waiting'))} · ${shownWait.length}</span></div><div class="card">${shownWait.map(row).join('')}</div>` : ''}
     ${shownDone.length ? `<div class="sh"><span>${esc(t('done'))} · ${shownDone.length}</span></div><div class="card">${shownDone.map(row).join('')}</div>` : ''}
+    ${!shownWait.length && !shownDone.length ? `<p class="foot">${esc(t('filterEmpty'))}</p>` : ''}
     ${value ? `<p class="foot">${esc(t('listed'))}: ${esc(value)}. ${esc(t('notRevenue'))}</p>` : ''}
     <p class="foot">${esc(t('scoreNote'))}</p>`, waiting.length);
   app.querySelectorAll('[data-f]').forEach((button) => {
     button.onclick = () => { state.filter = button.dataset.f; showInbox().catch(fail); };
   });
+  const openDigest = document.getElementById('openDigest');
+  if (openDigest) openDigest.onclick = () => go('#/digest');
+  const clearProp = document.getElementById('clearProp');
+  if (clearProp) clearProp.onclick = () => { state.propertyId = ''; showInbox().catch(fail); };
+}
+
+function hydrateLead(lead) {
+  const options = lead.options || [];
+  const draft = lead.draft;
+  let slotIds = [];
+  if (draft && draft.slot_ids) {
+    try {
+      const parsed = JSON.parse(draft.slot_ids);
+      slotIds = Array.isArray(parsed) ? parsed : [];
+    } catch { slotIds = []; }
+  }
+  if (draft && String(draft.text || '').trim()) {
+    state.draftText = draft.text;
+    state.slotIds = slotIds;
+    state.manual = draft.option_id == null;
+    state.option = options.find((row) => row.id === draft.option_id) || (draft.option_id == null ? { id: null, text: draft.text } : null);
+  } else {
+    state.option = options[0] || null;
+    state.draftText = state.option ? state.option.text : '';
+    state.slotIds = [...(state.option?.slot_ids || [])];
+    state.manual = lead.status === 'review';
+  }
+  state.attachments = attachmentList(draft, state.option);
+  state.sheet = query.get('sheet') === '1';
 }
 
 async function showLead() {
@@ -291,22 +385,24 @@ async function showLead() {
     refreshBadge(),
   ]);
   const lead = data.lead;
+  if (state.loadedLead !== lead.id || state.loadedStatus !== lead.status) {
+    if (state.fileUrl) URL.revokeObjectURL(state.fileUrl);
+    state.fileUrl = '';
+    hydrateLead(lead);
+    state.loadedLead = lead.id;
+    state.loadedStatus = lead.status;
+  }
   const stopped = lead.status === 'stopped';
   const review = lead.status === 'review';
-  const options = lead.options || [];
-  const slots = lead.slots || [];
+  const editable = lead.status === 'pending_approval' || lead.status === 'review';
+  const options = editable ? (lead.options || []) : [];
+  const slots = editable ? (lead.slots || []) : [];
   const replyLang = lead.language === 'ru' ? 'ru' : 'en';
-  if (state.loadedLead !== lead.id) {
-    state.loadedLead = lead.id;
-    state.option = options[0] || null;
-    state.draftText = state.option ? state.option.text : '';
-    state.slotIds = [...(state.option?.slot_ids || [])];
-    state.manual = false;
-    state.sheet = query.get('sheet') === '1';
-  }
   const inbound = (lead.messages || []).filter((row) => row.direction === 'in').slice(-1)[0];
+  const outbound = (lead.messages || []).filter((row) => row.direction === 'out' && row.text).slice(-1)[0];
+  const shownOut = editable ? state.draftText : (outbound?.text || '');
   const note = NOTE[replyLang];
-  const slotButtons = (attr) => slots.map((slot) => `<button class="tslot" type="button" ${attr}="${esc(slot.id)}">${esc(replyLang === 'ru' ? slot.label_ru : slot.label_en)}</button>`).join('');
+  const slotButtons = (attr) => slots.map((slot) => `<button class="tslot ${(state.slotIds || []).includes(slot.id) ? 'on' : ''}" type="button" ${attr}="${esc(slot.id)}">${esc(replyLang === 'ru' ? slot.label_ru : slot.label_en)}</button>`).join('');
   const sheet = state.sheet ? `<div class="backdrop" id="sheetBg"></div><div class="sheet" role="dialog"><div class="grab"></div>
     <div class="sheethd"><b>${esc(t('editReply'))}</b><button class="link" id="sheetDone" type="button">${esc(t('doneBtn'))}</button></div>
     <textarea id="ta" lang="${replyLang}">${esc(state.draftText || '')}</textarea>
@@ -316,64 +412,240 @@ async function showLead() {
     <p class="sheetai"><i>${esc(note.ai)}</i></p>
     <p class="sheetai">${esc(t('stopLineLabel'))}: <i>${esc(note.stop)}</i></p>
     <button class="btn sec sm" id="reset" type="button">${esc(t('returnOriginal'))}</button></div>` : '';
-  shell(`<a class="back" href="#/inbox">‹ ${esc(t('inbox'))}</a>
+  const picker = state.picker ? pickerSheet(slots, replyLang, lead.property?.tz) : '';
+  const proposedNote = lead.proposed
+    ? `<p class="foot">${esc(lead.proposed.free ? t('clientTimeFree') : t('clientTimeBusy'))}: ${esc(replyLang === 'ru' ? lead.proposed.label_ru : lead.proposed.label_en)}</p>`
+    : '';
+  const attachName = { brochure: t('brochure'), plan: t('floorPlan'), link: t('linkPh') };
+  const attachRow = (state.attachments || []).length
+    ? `<div class="attach" id="attachList">${state.attachments.map((item) => `<button type="button" class="tslot" data-attach="${esc(item.kind)}" data-url="${esc(item.url)}">${esc(t('attached'))}: ${esc(attachName[item.kind] || item.name)}</button>`).join('')}</div>${state.fileUrl ? `<iframe id="filePreview" class="fileview" title="${esc(t('brochure'))}" src="${esc(state.fileUrl)}"></iframe>` : ''}`
+    : '';
+  const outBubble = shownOut
+    ? `<div class="msg out${editable ? ' edit' : ''}" id="replyText"${editable ? ' contenteditable="true" role="textbox" spellcheck="true"' : ''}><bdi dir="auto">${esc(shownOut)}</bdi></div>${editable ? `<div class="msgcap"><button class="link" id="edit" type="button">${esc(t('editText'))}</button> <span>${esc(t('editInline'))}</span></div>` : ''}`
+    : (editable ? `<button class="btn sec" id="edit" type="button">${esc(t('editText'))}</button>` : '');
+  shell(`<a class="back" href="${lead.status === 'archived' ? '#/archive' : '#/inbox'}">‹ ${esc(lead.status === 'archived' ? t('archiveTitle') : t('inbox'))}</a>
     ${bar()}
     <div class="actbar"><div class="btnrow">
-      <button class="btn sec" id="reject" type="button" ${stopped ? 'disabled' : ''}>${esc(t('dontSend'))}</button>
+      <button class="btn sec" id="archive" type="button">${esc(t('archiveBtn'))}</button>
       <button class="btn go w2" id="send" type="button" ${stopped ? 'disabled' : ''}>${esc(t('send'))}</button>
     </div></div>
-    <div class="card lh2 ${esc(lead.grade)}"><div><h1><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || '')}</bdi> <span class="g ${esc(lead.grade)}">${esc(lead.grade)} ${esc(lead.score)}</span></h1>
+    <div class="card lh2 ${esc(mark(lead))}"><div><h1><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || '')}</bdi> <span class="g ${esc(mark(lead))}">${esc(mark(lead))}</span></h1>
       <p>${channelChip(lead.channel)}<span>${esc(place(lead.property?.title || ''))}</span></p></div></div>
     <div class="thread"><div class="msg in"><bdi dir="auto">${esc(inbound?.text || '')}</bdi></div>
-      ${state.draftText ? `<div class="msg out"><bdi dir="auto">${esc(state.draftText)}</bdi></div><div class="msgcap"><button class="link" id="edit" type="button">${esc(t('editText'))}</button></div>` : `<button class="btn sec" id="edit" type="button">${esc(t('editText'))}</button>`}
+      ${outBubble}
+      ${attachRow}
     </div>
+    ${propertyBlurb(lead)}
     <div class="card smart">
       <div><span>${esc(t('wants'))}</span><b>${esc(intentLabel(lead.intent))}</b></div>
       <div><span>${esc(t('budget'))}</span><b>${esc(budgetText(lead))}</b>${(lead.flags || []).includes('budget_currency_assumed') ? `<small>${esc(t('budgetAssumed'))}</small>` : ''}</div>
       <div><span>${esc(t('timing'))}</span><b>${esc(timingText(lead))}</b></div>
       <div><span>${esc(t('language'))}</span><b>${esc(lead.language === 'ru' ? 'RU' : lead.language === 'en' ? 'EN' : t('intentUnclear'))}</b></div>
     </div>
+    <div class="card pad"><div class="btnrow">
+      <button class="btn sec" id="stop" type="button" ${stopped ? 'disabled' : ''}>${esc(t('stopBtn'))}</button>
+      <button class="btn danger" id="erase" type="button">${esc(t('eraseBtn'))}</button>
+    </div></div>
     ${stopped ? `<p class="foot">${esc(t('optedOut'))}</p>` : ''}
+    ${lead.status === 'sent' ? `<p class="foot">${esc(t('sentSim'))}</p>` : ''}
     ${review ? `<p class="foot">${esc(t('notUnderstood'))}</p><button class="btn" id="manual" type="button">${esc(t('replyManually'))}</button>` : ''}
     ${lead.stale_sending ? `<p class="foot">${esc(t('stale'))}</p>` : ''}
+    ${proposedNote}
     ${options.length ? `<div class="sh"><span>${esc(t('optsTitle'))}</span></div><div class="card opts">${options.map((row) => `<button class="opt ${state.option && state.option.id === row.id ? 'on' : ''}" type="button" data-opt="${esc(row.id)}"><b>${esc(state.lang === 'ru' ? row.label_ru : row.label_en)}</b><span>${esc(row.text)}</span></button>`).join('')}</div>` : ''}
-    ${slots.length ? `<div class="sh"><span>${esc(t('slotsTitle'))}</span></div><div class="card slotcard"><p class="slothd">${esc(place(lead.property?.title || ''))}</p><div class="chips">${slotButtons('data-insert')}</div></div><p class="foot">${esc(t('notReserved'))}</p>` : ''}
+    ${lead.calendar_error ? `<p class="foot" id="calendarError">${esc(t('calendarUnavailable'))}</p>` : ''}
+    ${slots.length ? `<div class="sh"><span>${esc(t('slotsTitle'))}</span></div><div class="card slotcard"><p class="slothd">${esc(place(lead.property?.title || ''))}</p><div class="chips">${slotButtons('data-insert')}</div><button class="btn sec sm" id="openPicker" type="button">${esc(t('pickTime'))}</button></div><p class="foot">${esc(lead.calendar_mode === 'google' ? t('calendarGoogle') : t('calendarMock'))}</p><p class="foot">${esc(t('notReserved'))}</p>` : ''}
+    ${picker}
     ${sheet}
     <p class="foot" id="formError" role="alert"></p>
     <p class="foot">${esc(t('scoreNote'))}</p>`, badge);
   const send = document.getElementById('send');
-  if (send) send.disabled = stopped || (!state.draftText && !review);
+  if (send) send.disabled = !editable || !String(state.draftText || '').trim();
   app.querySelectorAll('[data-opt]').forEach((button) => {
-    button.onclick = () => {
+    button.onclick = async () => {
       state.option = options.find((row) => row.id === button.dataset.opt);
+      if (!state.option) return;
       state.draftText = state.option.text;
       state.slotIds = [...(state.option.slot_ids || [])];
+      state.attachments = state.option.attachments || [];
       state.manual = false;
-      state.sheet = true;
+      state.sheet = false;
+      if (state.option.id === 'other') state.picker = true;
+      try {
+        await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/draft`, { method: 'PUT', body: JSON.stringify(draftPayload()) });
+      } catch (err) {
+        state.notice = errText(err);
+      }
       showLead().catch(fail);
     };
   });
   const edit = document.getElementById('edit');
   if (edit) edit.onclick = () => { state.sheet = true; showLead().catch(fail); };
   app.querySelectorAll('[data-insert]').forEach((button) => {
-    button.onclick = () => {
+    button.onclick = async () => {
       insertProposal(lead, replyLang, button.dataset.insert);
-      showLead().catch(report);
+      try {
+        await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/draft`, { method: 'PUT', body: JSON.stringify(draftPayload()) });
+      } catch (err) {
+        state.notice = errText(err);
+      }
+      showLead().catch(fail);
     };
   });
   const manual = document.getElementById('manual');
   if (manual) manual.onclick = () => { state.option = { id: null, text: '' }; state.draftText = ''; state.slotIds = []; state.manual = true; state.sheet = true; showLead().catch(report); };
-  document.getElementById('reject').onclick = async () => {
+  const archive = document.getElementById('archive');
+  if (archive) archive.onclick = async () => {
     try {
-      await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/reject`, { method: 'POST', body: '{}' });
+      await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/archive`, { method: 'POST', body: '{}' });
       state.sheet = false;
-      location.hash = '#/inbox';
+      state.picker = false;
+      state.loadedLead = '';
+      state.notice = t('archivedSim');
+      go('#/inbox');
     } catch (err) {
       report(err);
     }
   };
+  app.querySelectorAll('[data-attach]').forEach((button) => {
+    button.onclick = () => showAttached(button.dataset.url, button.dataset.attach).catch((err) => { state.notice = errText(err); showLead().catch(fail); });
+  });
+  const openPicker = document.getElementById('openPicker');
+  if (openPicker) openPicker.onclick = () => { state.picker = true; showLead().catch(fail); };
+  app.querySelectorAll('[data-pick]').forEach((button) => {
+    button.onclick = () => chooseSlot(lead, button.dataset.pick).catch((err) => { state.notice = errText(err); showLead().catch(fail); });
+  });
+  const pickerClose = document.getElementById('pickerClose');
+  if (pickerClose) pickerClose.onclick = () => { state.picker = false; showLead().catch(fail); };
+  const pickerBg = document.getElementById('pickerBg');
+  if (pickerBg) pickerBg.onclick = () => { state.picker = false; showLead().catch(fail); };
+  const stop = document.getElementById('stop');
+  if (stop) stop.onclick = () => {
+    if (stopped) return;
+    state.sheet = false;
+    state.ask = {
+      message: t('stopHint'),
+      yes: t('stopBtn'),
+      run: async () => {
+        await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/stop`, { method: 'POST', body: '{}' });
+        state.loadedLead = '';
+        state.loadedStatus = '';
+        state.notice = t('stopDone');
+        showLead().catch(fail);
+      },
+    };
+    showLead().catch(fail);
+  };
+  const erase = document.getElementById('erase');
+  if (erase) erase.onclick = () => {
+    state.sheet = false;
+    state.ask = {
+      message: t('eraseHint'),
+      yes: t('eraseBtn'),
+      run: async () => {
+        const result = await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/erase`, { method: 'POST', body: '{}' });
+        state.loadedLead = '';
+        state.notice = result.optout_kept ? `${t('eraseDone')} ${t('eraseKept')}` : t('eraseDone');
+        go('#/inbox');
+      },
+    };
+    showLead().catch(fail);
+  };
   wireSheet(lead, replyLang);
-  if (send) send.onclick = () => saveAndSend(lead).catch(report);
+  wireInline(lead);
+  if (send) send.onclick = () => {
+    const bubble = document.getElementById('replyText');
+    if (bubble && bubble.isContentEditable) state.draftText = bubble.innerText.trim();
+    send.disabled = true;
+    saveAndSend(lead).catch((err) => {
+      state.notice = errText(err);
+      showLead().catch(fail);
+    });
+  };
+}
+
+function attachmentList(draft, option) {
+  if (draft && draft.attachments) {
+    try {
+      const parsed = JSON.parse(draft.attachments);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch { /* use the selected option */ }
+  }
+  return (option && option.attachments) || [];
+}
+
+function propertyBlurb(lead) {
+  const property = lead.property;
+  if (!property || property.id === 'general') return '';
+  const facts = property.facts || {};
+  const rooms = property.bedrooms != null && property.bedrooms !== '' ? property.bedrooms : facts.bedrooms;
+  const bits = [
+    property.district,
+    property.address,
+    rooms != null && rooms !== '' ? `${rooms} ${state.lang === 'ru' ? 'комн.' : 'bd'}` : '',
+    property.area_value ? `${property.area_value} ${property.area_unit || ''}`.trim() : '',
+    state.lang === 'ru' ? (property.price_ru || '') : (property.price_en || ''),
+  ].filter(Boolean);
+  const why = ((lead.match && lead.match.reasons) || []).map((reason) => t(`match_${reason}`)).filter((label) => label && !label.startsWith('match_')).join(', ');
+  return `<div class="card pad" id="propertyMatch"><b>${esc(property.title || '')}</b><p>${esc(bits.join(' · '))}</p>${why ? `<small>${esc(t('matchedBy'))}: ${esc(why)}</small>` : ''}</div>`;
+}
+
+async function showAttached(url, kind) {
+  const headers = {};
+  if (String(url || '').startsWith('/v1/') && !String(url).includes('/public/')) {
+    headers.Authorization = state.tma ? `tma ${state.tma}` : '';
+  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw Object.assign(new Error('not_found'), { body: { error_code: 'not_found' } });
+  const buf = await res.arrayBuffer();
+  const type = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0];
+  if (state.fileUrl) URL.revokeObjectURL(state.fileUrl);
+  state.fileUrl = URL.createObjectURL(new Blob([buf], { type }));
+  state.notice = type === 'application/pdf' ? `${t('brochure')} PDF · ${buf.byteLength}` : `${t('attached')}: ${kind || 'file'}`;
+  showLead().catch(fail);
+}
+
+function pickerSheet(slots, replyLang, tz) {
+  const groups = new Map();
+  for (const slot of slots) {
+    const zone = zoned(slot.start_utc, tz || 'Asia/Dubai');
+    if (!groups.has(zone.key)) groups.set(zone.key, { zone, list: [] });
+    groups.get(zone.key).list.push(slot);
+  }
+  const days = [...groups.values()].sort((a, b) => a.zone.key.localeCompare(b.zone.key)).map(({ zone, list }) => {
+    list.sort((a, b) => Date.parse(a.start_utc) - Date.parse(b.start_utc));
+    const times = list.map((slot) => {
+      const time = zoned(slot.start_utc, tz || 'Asia/Dubai');
+      return `<button class="tslot" type="button" data-pick="${esc(slot.id)}">${esc(`${time.hour}:${time.minute}`)}</button>`;
+    }).join('');
+    return `<div class="picker-day"><b>${esc(dayHeading(zone))}</b><div class="chips">${times}</div></div>`;
+  }).join('');
+  return `<div class="backdrop top" id="pickerBg"></div><div class="sheet picker" id="timePicker" role="dialog"><div class="grab"></div><div class="sheethd"><b>${esc(t('pickTime'))}</b><button class="link" id="pickerClose" type="button">${esc(t('doneBtn'))}</button></div>${days}</div>`;
+}
+
+async function chooseSlot(lead, slotId) {
+  const result = await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/apply-slot`, {
+    method: 'POST',
+    body: JSON.stringify({ slot_id: slotId }),
+  });
+  state.draftText = result.text;
+  state.slotIds = result.slot_ids || [slotId];
+  state.picker = false;
+  state.loadedLead = '';
+  state.notice = t('pickedTime');
+  await showLead();
+}
+
+function wireInline(lead) {
+  const bubble = document.getElementById('replyText');
+  if (!bubble || !bubble.isContentEditable) return;
+  bubble.addEventListener('input', () => { state.draftText = bubble.innerText; });
+  bubble.addEventListener('blur', () => {
+    state.draftText = bubble.innerText.trim();
+    api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/draft`, {
+      method: 'PUT',
+      body: JSON.stringify(draftPayload()),
+    }).catch((err) => { state.notice = errText(err); });
+  });
 }
 
 function insertProposal(lead, replyLang, slotId) {
@@ -405,9 +677,10 @@ function wireSheet(lead, replyLang) {
     try {
       await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/draft`, {
         method: 'PUT',
-        body: JSON.stringify({ text: state.draftText, option_id: state.manual ? null : state.option?.id, edited: true, slot_ids: state.slotIds || [] }),
+        body: JSON.stringify(draftPayload()),
       });
       state.sheet = false;
+      state.notice = t('saved');
       showLead().catch(report);
     } catch (err) {
       report(err);
@@ -419,15 +692,17 @@ function wireSheet(lead, replyLang) {
 async function saveAndSend(lead) {
   const saved = await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/draft`, {
     method: 'PUT',
-    body: JSON.stringify({ text: state.draftText, option_id: state.manual ? null : state.option?.id, edited: true, slot_ids: state.slotIds || [] }),
+    body: JSON.stringify(draftPayload()),
   });
-  await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/send`, {
+  const result = await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/send`, {
     method: 'POST',
     headers: { 'Idempotency-Key': `ui-${lead.id}-${saved.version}-${Date.now()}` },
     body: JSON.stringify({ draft_version: saved.version, manual: state.manual }),
   });
   state.sheet = false;
-  location.hash = '#/inbox';
+  state.loadedLead = '';
+  state.notice = result.simulated === false ? t('sendDone') : t('sentSim');
+  go('#/inbox');
 }
 
 function dayHeading(zone) {
@@ -446,15 +721,39 @@ function weekStrip(items) {
     day.setUTCDate(start.getUTCDate() + (index - weekday));
     const key = day.toISOString().slice(0, 10);
     const on = items.some((row) => zoned(row.start_utc, row.tz).key === key);
-    return `<div class="day ${index === weekday ? 'on' : ''}">${label}<b>${day.getUTCDate()}</b><i class="${on ? '' : 'no'}"></i></div>`;
+    const selected = state.dayKey ? state.dayKey === key : index === weekday;
+    return `<button class="day ${selected ? 'on' : ''}" type="button" data-day="${key}">${label}<b>${day.getUTCDate()}</b><i class="${on ? '' : 'no'}"></i></button>`;
   }).join('')}</div>`;
+}
+
+function viewingLabel(status) {
+  if (status === 'confirmed') return t('confirmed');
+  if (status === 'cancelled') return t('cancelled');
+  return t('awaiting');
+}
+
+async function showArchive() {
+  const [list, badge] = await Promise.all([
+    api('/v1/intl/leads?archived=1'),
+    refreshBadge(),
+  ]);
+  const leads = list.leads || [];
+  const row = (lead) => `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(mark(lead))}"></span>
+    <div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi> <span class="g ${esc(mark(lead))}">${esc(mark(lead))}</span></div>
+    <div class="s">${channelChip(lead.channel, true)}</div></div>
+    <div class="r">${esc(clock(lead.first_msg_at))}</div></a>`;
+  shell(`<a class="back" href="#/inbox">‹ ${esc(t('inbox'))}</a>
+    ${bar()}
+    <div class="hd"><h1>${esc(t('archiveTitle'))}</h1><p>${esc(fill('leadsLine', leads.length))}</p></div>
+    ${leads.length ? `<div class="card">${leads.map(row).join('')}</div>` : `<p class="foot">${esc(t('archiveEmpty'))}</p>`}`, badge);
 }
 
 async function showViewings() {
   const [data, badge] = await Promise.all([api('/v1/intl/viewings'), refreshBadge()]);
   const rows = data.viewings || [];
+  const shown = state.dayKey ? rows.filter((row) => zoned(row.start_utc, row.tz).key === state.dayKey) : rows;
   const groups = new Map();
-  for (const row of rows) {
+  for (const row of shown) {
     const zone = zoned(row.start_utc, row.tz);
     if (!groups.has(zone.key)) groups.set(zone.key, { zone, list: [] });
     groups.get(zone.key).list.push(row);
@@ -462,46 +761,217 @@ async function showViewings() {
   const cards = [...groups.values()].map(({ zone, list }) => `<div class="sh"><span>${esc(dayHeading(zone))}</span></div>${list.map((row) => {
     const time = zoned(row.start_utc, row.tz);
     const ok = row.status === 'confirmed';
-    return `<div class="ev"><div class="tm">${esc(`${time.hour}:${time.minute}`)}<small>${esc(t('minutes'))}</small></div><div class="card"><div class="kind">${esc(t('viewingWord'))}</div><h3>${esc(place(row.title || ''))}</h3><p><bdi dir="auto">${esc(row.clean_name || row.sender_name || '')}</bdi> · <span class="${ok ? 'state-ok' : ''}">${esc(ok ? t('confirmed') : t('awaiting'))}</span></p>${channelChip(row.channel)}</div></div>`;
+    const actions = [];
+    if (row.status !== 'confirmed' && row.status !== 'cancelled') {
+      actions.push(`<button class="btn sm" type="button" data-view="${esc(row.id)}" data-act="confirm">${esc(t('confirmView'))}</button>`);
+    }
+    if (row.status !== 'cancelled') {
+      actions.push(`<button class="btn sec sm" type="button" data-view="${esc(row.id)}" data-act="cancel">${esc(t('cancelView'))}</button>`);
+    }
+    return `<div class="ev"><div class="tm">${esc(`${time.hour}:${time.minute}`)}<small>${esc(t('minutes'))}</small></div><div class="card"><a href="#/lead/${esc(row.lead_id)}"><div class="kind">${esc(t('viewingWord'))}</div><h3>${esc(place(row.title || ''))}</h3><p><bdi dir="auto">${esc(row.clean_name || row.sender_name || '')}</bdi> · <span class="${ok ? 'state-ok' : ''}">${esc(viewingLabel(row.status))}</span></p>${channelChip(row.channel)}</a>${actions.length ? `<div class="btnrow">${actions.join('')}</div>` : ''}</div></div>`;
   }).join('')}`).join('');
   const anchor = rows[0] ? zoned(rows[0].start_utc, rows[0].tz) : zoned(new Date().toISOString(), 'Asia/Dubai');
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}
+  shell(`${bar()}
     <div class="hd"><h1>${esc(t('viewings'))}</h1><p>${esc(fill('viewingsLine', { w: isoWeek(anchor.key), n: rows.length }))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
     ${weekStrip(rows)}
-    ${cards}
+    ${state.dayKey ? `<p class="foot"><button class="link inline" id="clearDay" type="button">${esc(t('clearFilter'))}</button></p>` : ''}
+    ${cards || `<p class="foot">${esc(t('filterEmpty'))}</p>`}
+    <p class="foot" id="formError" role="alert"></p>
     <p class="foot">${esc(t('viewingsFoot'))}</p>`, badge);
+  app.querySelectorAll('[data-day]').forEach((button) => {
+    button.onclick = () => {
+      state.dayKey = state.dayKey === button.dataset.day ? '' : button.dataset.day;
+      showViewings().catch(fail);
+    };
+  });
+  const clearDay = document.getElementById('clearDay');
+  if (clearDay) clearDay.onclick = () => { state.dayKey = ''; showViewings().catch(fail); };
+  app.querySelectorAll('[data-view]').forEach((button) => {
+    button.onclick = () => {
+      const id = button.dataset.view;
+      const act = button.dataset.act;
+      const post = async () => {
+        await api(`/v1/intl/viewings/${encodeURIComponent(id)}/${act}`, { method: 'POST', body: '{}' });
+        state.notice = act === 'confirm' ? t('confirmed') : t('cancelled');
+        showViewings().catch(fail);
+      };
+      if (act === 'cancel') {
+        state.ask = { message: t('cancelHint'), yes: t('cancelView'), run: post };
+        showViewings().catch(fail);
+        return;
+      }
+      post().catch((err) => { state.notice = errText(err); showViewings().catch(fail); });
+    };
+  });
+}
+
+function roomsOf(row) {
+  if (row.bedrooms != null && row.bedrooms !== '') return row.bedrooms;
+  return row.facts && row.facts.bedrooms != null ? row.facts.bedrooms : '';
 }
 
 async function showProperties() {
   const [data, badge] = await Promise.all([api('/v1/intl/properties'), refreshBadge()]);
+  const editing = state.editProperty;
   const cards = (data.properties || []).map((row) => {
     const price = state.lang === 'ru' ? (row.price_ru || '') : (row.price_en || '');
     const meta = row.price_period === 'total' ? kindLabel(row.kind) : `${kindLabel(row.kind)} · ${periodLabel(row.price_period)}`;
-    const count = (state.leadRows || []).filter((lead) => lead.property_id === row.id).length;
-    return `<div class="oc"><div class="oi">${ICO.home}</div><div class="tx"><h3>${esc(place(row.title))}</h3><p>${esc(meta)}</p><div class="price">${esc(price)}</div><span class="cnt2">${esc(fill('leadsCnt', count))}</span></div></div>`;
+    const rooms = roomsOf(row);
+    const bits = [
+      row.address,
+      row.district,
+      rooms !== '' ? `${rooms} ${state.lang === 'ru' ? 'комн.' : 'bd'}` : '',
+      row.area_value ? `${row.area_value} ${row.area_unit || ''}`.trim() : '',
+    ].filter(Boolean);
+    const files = [
+      row.brochure_url ? t('brochure') : '',
+      row.plan_url ? t('floorPlan') : '',
+      row.listing_url ? t('linkPh') : '',
+    ].filter(Boolean);
+    return `<article class="propcard"><div class="oi">${ICO.home}</div><h3>${esc(row.title || '')}</h3><p>${esc(meta)}</p><div class="price">${esc(price)}</div>${bits.length ? `<p>${esc(bits.join(' · '))}</p>` : ''}${files.length ? `<p class="files">${esc(files.join(' · '))}</p>` : ''}<div class="btnrow"><button class="btn sec sm" type="button" data-prop="${esc(row.id)}">${esc(t('openLeads'))}</button><button class="btn sec sm" type="button" data-edit="${esc(row.id)}">${esc(t('editProperty'))}</button></div></article>`;
   }).join('');
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}
+  const form = state.addProperty ? `<form class="card form" id="propForm">
+      <input id="ptitle" maxlength="120" placeholder="${esc(t('titlePh'))}" value="${esc(editing?.title || '')}">
+      <input id="paddress" maxlength="160" placeholder="${esc(t('addressPh'))}" value="${esc(editing?.address || '')}">
+      <input id="pdistrict" maxlength="80" placeholder="${esc(t('districtPh'))}" value="${esc(editing?.district || '')}">
+      <select id="pkind"><option value="rent">${esc(t('rent'))}</option><option value="sale">${esc(t('sale'))}</option></select>
+      <select id="pcurrency"><option>USD</option><option>AED</option></select>
+      <select id="pperiod"></select>
+      <input id="pprice" inputmode="decimal" placeholder="${esc(t('pricePh'))}" value="${editing?.price != null ? esc(editing.price) : ''}">
+      <input id="prooms" inputmode="numeric" placeholder="${esc(t('roomsPh'))}" value="${esc(roomsOf(editing || {}))}">
+      <input id="parea" inputmode="decimal" placeholder="${esc(t('areaPh'))}" value="${editing?.area_value != null ? esc(editing.area_value) : ''}">
+      <select id="punit"><option value="sqft">sqft</option><option value="sqm">sqm</option></select>
+      <input id="plink" maxlength="500" placeholder="${esc(t('linkPh'))}" value="${esc(editing?.listing_url || '')}">
+      <input id="pplan" maxlength="500" placeholder="${esc(t('planPh'))}" value="${esc(String(editing?.plan_url || '').startsWith('data:') ? '' : (editing?.plan_url || ''))}">
+      <input id="pplanfile" type="file" accept="image/png,image/jpeg,image/webp,application/pdf">
+      <label class="check"><input id="pbrochure" type="checkbox" ${editing?.brochure_url ? 'checked' : ''}> ${esc(t('makeBrochure'))}</label>
+      <button class="btn" id="saveProp" type="submit">${esc(t('saveProperty'))}</button>
+      <button class="btn sec" id="cancelProp" type="button">${esc(t('cancelView'))}</button>
+      <p id="formError" role="alert"></p>
+    </form>` : `<button class="btn sec queuebtn" id="addProp" type="button">${esc(t('addProperty'))}</button>`;
+  shell(`${bar()}
     <div class="hd"><h1>${esc(t('properties'))}</h1><p>${esc(t('propertiesSub'))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
-    <div class="grid2">${cards}</div>
+    ${form}
+    <div class="proplist">${cards}</div>
     <p class="foot">${esc(t('proposals'))}</p>`, badge);
+  app.querySelectorAll('[data-prop]').forEach((button) => {
+    button.onclick = () => { state.propertyId = button.dataset.prop; go('#/inbox'); };
+  });
+  app.querySelectorAll('[data-edit]').forEach((button) => {
+    button.onclick = () => {
+      state.editProperty = (data.properties || []).find((row) => row.id === button.dataset.edit) || null;
+      state.addProperty = true;
+      showProperties().catch(fail);
+    };
+  });
+  const add = document.getElementById('addProp');
+  if (add) add.onclick = () => { state.editProperty = null; state.addProperty = true; showProperties().catch(fail); };
+  const cancel = document.getElementById('cancelProp');
+  if (cancel) cancel.onclick = () => { state.addProperty = false; state.editProperty = null; showProperties().catch(fail); };
+  const formEl = document.getElementById('propForm');
+  if (formEl) {
+    const fillPeriods = () => {
+      const kind = document.getElementById('pkind').value;
+      const options = kind === 'sale' ? [['total', t('perTotal')]] : [['year', t('perYear')], ['month', t('perMonth')]];
+      document.getElementById('pperiod').innerHTML = options.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+    };
+    fillPeriods();
+    if (editing) {
+      document.getElementById('pkind').value = editing.kind || 'rent';
+      fillPeriods();
+      document.getElementById('pcurrency').value = editing.currency || 'USD';
+      document.getElementById('pperiod').value = editing.price_period || (editing.kind === 'sale' ? 'total' : 'year');
+      if (editing.area_unit) document.getElementById('punit').value = editing.area_unit;
+    }
+    document.getElementById('pkind').onchange = fillPeriods;
+    formEl.onsubmit = async (event) => {
+      event.preventDefault();
+      try {
+        const file = document.getElementById('pplanfile').files && document.getElementById('pplanfile').files[0];
+        const plan = file ? await readPlan(file) : document.getElementById('pplan').value.trim();
+        const rooms = document.getElementById('prooms').value.trim();
+        const area = document.getElementById('parea').value.trim();
+        await api('/v1/intl/properties', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: editing?.id,
+            title: document.getElementById('ptitle').value.trim(),
+            address: document.getElementById('paddress').value.trim(),
+            district: document.getElementById('pdistrict').value.trim(),
+            kind: document.getElementById('pkind').value,
+            price: Number(document.getElementById('pprice').value),
+            currency: document.getElementById('pcurrency').value,
+            price_period: document.getElementById('pperiod').value,
+            bedrooms: rooms === '' ? null : Number(rooms),
+            area_value: area === '' ? null : Number(area),
+            area_unit: area === '' ? '' : document.getElementById('punit').value,
+            listing_url: document.getElementById('plink').value.trim(),
+            plan_url: plan,
+            make_brochure: document.getElementById('pbrochure').checked,
+            tz: editing?.tz || 'Asia/Dubai',
+            tz_label_en: editing?.tz_label_en || 'Dubai time',
+            tz_label_ru: editing?.tz_label_ru || 'время Дубая',
+          }),
+        });
+        state.addProperty = false;
+        state.editProperty = null;
+        state.notice = t('propertySaved');
+        showProperties().catch(fail);
+      } catch (err) {
+        report(err);
+      }
+    };
+  }
+}
+
+function readPlan(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 80000) {
+      reject(Object.assign(new Error('invalid_property'), { body: { error_code: 'invalid_property' } }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(Object.assign(new Error('invalid_property'), { body: { error_code: 'invalid_property' } }));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function pokeSetting(body, lockedText) {
+  try {
+    await api('/v1/intl/settings', { method: 'POST', body: JSON.stringify(body) });
+    state.notice = t('saved');
+  } catch (err) {
+    state.notice = err.body?.error_code === 'locked' ? lockedText : errText(err);
+  }
+  showSetup().catch(fail);
 }
 
 async function showSetup() {
   const badge = await refreshBadge();
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}
+  try { state.serverSettings = await api('/v1/intl/settings'); } catch { /* keep the last settings */ }
+  const manualOn = !state.serverSettings || state.serverSettings.manual_approval !== false;
+  const autoOn = state.serverSettings?.auto_send_hot === true;
+  shell(`${bar()}
     <div class="hd"><h1>${esc(t('setupTitle'))}</h1><p>${esc(t('setupSub'))}</p></div>
-    <div class="card"><div class="step"><span class="n">1</span><div><b>${esc(t('step1'))}</b><small>${esc(t('step1s'))}</small></div></div>
-      <div class="step"><span class="n">2</span><div><b>${esc(t('step2'))}</b><small>${esc(t('step2s'))}</small></div></div>
-      <div class="step"><span class="n">3</span><div><b>${esc(t('step3'))}</b><small>${esc(t('step3s'))}</small></div></div></div>
-    <div class="card spaced"><div class="toggle"><div class="tx"><b>${esc(t('manualTitle'))}</b><small>${esc(t('manualLocked'))}</small></div><span class="sw on"></span></div>
-      <div class="toggle off"><div class="tx"><b>${esc(t('autoTitle'))} <span class="plan">${esc(t('planned'))}</span></b><small>${esc(t('autoSub'))}</small></div><span class="sw"></span></div></div>
+    <div class="card"><button class="step" id="step-connect" type="button"><span class="n">1</span><div><b>${esc(t('step1'))}</b><small>${esc(t('step1s'))}</small></div></button>
+      <button class="step" id="step-property" type="button"><span class="n">2</span><div><b>${esc(t('step2'))}</b><small>${esc(t('step2s'))}</small></div></button>
+      <button class="step" id="step-approve" type="button"><span class="n">3</span><div><b>${esc(t('step3'))}</b><small>${esc(t('step3s'))}</small></div></button></div>
+    <div class="card spaced"><button class="toggle" id="toggle-manual" type="button" aria-pressed="${manualOn ? 'true' : 'false'}"><div class="tx"><b>${esc(t('manualTitle'))}</b><small>${esc(t('manualLocked'))}</small></div><span class="sw ${manualOn ? 'on' : ''}"></span></button>
+      <button class="toggle ${autoOn ? '' : 'off'}" id="toggle-auto" type="button" aria-pressed="${autoOn ? 'true' : 'false'}"><div class="tx"><b>${esc(t('autoTitle'))} <span class="plan">${esc(t('planned'))}</span></b><small>${esc(t('autoSub'))}</small></div><span class="sw ${autoOn ? 'on' : ''}"></span></button></div>
     <p class="foot">${esc(t('proposals'))}</p>
     <a class="link" href="#/simulator">${esc(t('simulator'))}</a>`, badge);
+  document.getElementById('step-connect').onclick = () => { state.notice = t('simOnly'); go('#/simulator'); };
+  document.getElementById('step-property').onclick = () => { state.addProperty = true; go('#/properties'); };
+  document.getElementById('step-approve').onclick = () => go('#/inbox');
+  document.getElementById('toggle-manual').onclick = () => pokeSetting({ manual_approval: !manualOn }, t('manualLocked'));
+  document.getElementById('toggle-auto').onclick = () => pokeSetting({ auto_send_hot: !autoOn }, t('autoSub'));
 }
 
 async function showSimulator() {
   const [props, badge] = await Promise.all([api('/v1/intl/properties'), refreshBadge()]);
-  shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}
+  shell(`<a class="back" href="#/setup">‹ ${esc(t('setup'))}</a>
+    ${bar()}
     <div class="hd"><h1>${esc(t('simulator'))}</h1></div>
     <div class="card form">
       <select id="prop">${props.properties.map((row) => `<option value="${esc(row.id)}">${esc(row.title)}</option>`).join('')}</select>
@@ -510,34 +980,74 @@ async function showSimulator() {
       <button class="btn" id="as-client" type="button">${esc(t('sendAsClient'))}</button>
       <button class="btn sec" id="seed-minus" type="button">${esc(t('seedMinus'))}</button>
       <button class="btn sec" id="seed-all" type="button">${esc(t('seedAll'))}</button>
+      <p id="formError" role="alert"></p>
     </div>`, badge);
   document.getElementById('as-client').onclick = async () => {
-    const result = await api('/v1/sim/wa/inbound', {
-      method: 'POST',
-      body: JSON.stringify({
-        from_id: `sim:${Date.now()}`,
-        name: document.getElementById('name').value,
-        text: document.getElementById('msg').value,
-        property_id: document.getElementById('prop').value,
-        msg_id: String(Date.now()),
-      }),
-    });
-    location.hash = `#/lead/${result.lead_id}`;
+    try {
+      const result = await api('/v1/sim/wa/inbound', {
+        method: 'POST',
+        body: JSON.stringify({
+          from_id: `sim:${Date.now()}`,
+          name: document.getElementById('name').value,
+          text: document.getElementById('msg').value,
+          property_id: document.getElementById('prop').value,
+          msg_id: String(Date.now()),
+        }),
+      });
+      state.loadedLead = '';
+      go(`#/lead/${result.lead_id}`);
+    } catch (err) {
+      report(err);
+    }
   };
-  const seed = (mode) => api('/v1/intl/seed', { method: 'POST', body: JSON.stringify({ mode }) }).then(() => { location.hash = '#/inbox'; });
+  const seed = (mode) => api('/v1/intl/seed', { method: 'POST', body: JSON.stringify({ mode }) })
+    .then(() => { state.notice = t('saved'); go('#/inbox'); })
+    .catch((err) => { state.notice = errText(err); showSimulator().catch(fail); });
   document.getElementById('seed-minus').onclick = () => seed('minus_t06');
   document.getElementById('seed-all').onclick = () => seed('all');
+}
+
+async function showDigest() {
+  const [digest, props, badge] = await Promise.all([
+    api('/v1/intl/digest'),
+    api('/v1/intl/properties'),
+    refreshBadge(),
+  ]);
+  const rows = digest.write_first || [];
+  const list = rows.map((row) => `<a class="item chev" href="#/lead/${esc(row.id)}"><div class="main"><div class="t"><bdi dir="auto">${esc(row.name || row.id)}</bdi> <span class="g ${esc(row.grade)}">${esc(row.grade || '')}</span></div><div class="s">${esc(propertyTitle(props.properties || [], row.property_id))}</div></div></a>`).join('');
+  const today = (digest.viewings_today || []).map((row) => `<a class="item chev" href="#/lead/${esc(row.lead_id)}"><div class="main"><div class="t">${esc(viewingLabel(row.status))}</div><div class="s">${esc(propertyTitle(props.properties || [], row.property_id))}</div></div></a>`).join('');
+  const value = (digest.listed_value || []).map(moneyLine).join(' · ');
+  shell(`<a class="back" href="#/inbox">‹ ${esc(t('inbox'))}</a>
+    ${bar()}
+    <div class="hd"><h1>${esc(t('digestTitle'))}</h1></div>
+    <button class="btn queuebtn" id="digestSend" type="button">${esc(t('digestSend'))}</button>
+    ${rows.length ? `<div class="sh"><span>${esc(t('writeFirst'))} · ${rows.length}</span></div><div class="card">${list}</div>` : `<p class="foot">${esc(t('digestEmpty'))}</p>`}
+    ${today ? `<div class="sh"><span>${esc(t('todayWord'))}</span></div><div class="card">${today}</div>` : ''}
+    ${value ? `<p class="foot">${esc(t('listed'))}: ${esc(value)}. ${esc(t('notRevenue'))}</p>` : ''}
+    <p class="foot" id="formError" role="alert"></p>`, badge);
+  document.getElementById('digestSend').onclick = async () => {
+    try {
+      const result = await api('/v1/intl/digest/send', { method: 'POST', body: '{}' });
+      state.notice = result.digest_sent_on_demand === false
+        ? t('digestDenied')
+        : (result.telegram_delivery === false ? t('digestSim') : t('sendDone'));
+    } catch (err) {
+      state.notice = err.body?.digest_sent_on_demand === false ? t('digestDenied') : errText(err);
+    }
+    showDigest().catch(fail);
+  };
 }
 
 async function boot() {
   captureLaunch();
   state.dict = await fetch(`i18n/${state.lang}.json`).then((res) => res.json());
   if (!state.tma) {
-    shell(`<div class="demo">${esc(t('demoBar'))}</div>${bar()}<div class="card pad"><p>${esc(t('signIn'))}</p></div>`, 0);
+    shell(`${bar()}<div class="card pad"><p>${esc(t('signIn'))}</p></div>`, 0);
     return;
   }
   try {
     const settings = await api('/v1/intl/settings');
+    state.serverSettings = settings;
     state.ephemeral = settings.ephemeral === true;
   } catch {
     state.ephemeral = false;
@@ -547,6 +1057,8 @@ async function boot() {
   if (state.screen === 'properties') return showProperties();
   if (state.screen === 'setup') return showSetup();
   if (state.screen === 'simulator') return showSimulator();
+  if (state.screen === 'digest') return showDigest();
+  if (state.screen === 'archive') return showArchive();
   return showInbox();
 }
 

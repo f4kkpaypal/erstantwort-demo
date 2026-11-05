@@ -1,0 +1,5 @@
+Noto Sans and Noto Naskh Arabic
+Copyright 2022 The Noto Project Authors
+Licensed under the SIL Open Font License, Version 1.1.
+https://github.com/notofonts/latin-greek-cyrillic
+https://github.com/notofonts/arabic

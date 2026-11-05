@@ -17,7 +17,7 @@ function sendJson(res, status, body) {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     'Content-Length': Buffer.byteLength(payload),
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self' blob:; connect-src 'self'",
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(payload);
@@ -29,7 +29,7 @@ function readBody(req) {
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > 65536) {
+      if (size > 180000) {
         reject(Object.assign(new Error('body_too_large'), { code: 'body_too_large' }));
         req.destroy();
         return;
@@ -76,6 +76,17 @@ function buildIntlServer(config, intl) {
         serveStatic(res, pathname);
         return;
       }
+      const pub = pathname.match(/^\/v1\/intl\/public\/files\/([^/]+)$/);
+      if (pub && req.method === 'GET') {
+        const result = await intl.publicFile(decodeURIComponent(pub[1]), url.searchParams.get('exp'), url.searchParams.get('sig'));
+        if (result && Buffer.isBuffer(result.body_bytes)) {
+          res.writeHead(result.status || 200, result.headers || {});
+          res.end(result.body_bytes);
+          return;
+        }
+        sendJson(res, Number.isInteger(result.status) ? result.status : 404, result);
+        return;
+      }
       if (req.method === 'POST' && pathname === '/v1/intl/telegram') {
         const secret = String(req.headers['x-telegram-bot-api-secret-token'] || '');
         if (!config.TELEGRAM_WEBHOOK_SECRET || secret !== config.TELEGRAM_WEBHOOK_SECRET) {
@@ -98,6 +109,11 @@ function buildIntlServer(config, intl) {
       }
       const body = req.method === 'GET' ? {} : await readBody(req);
       const result = await route(intl, config, req, pathname, body, auth.user, url);
+      if (result && Buffer.isBuffer(result.body_bytes)) {
+        res.writeHead(result.status || 200, result.headers || {});
+        res.end(result.body_bytes);
+        return;
+      }
       sendJson(res, Number.isInteger(result.status) ? result.status : (result.ok === false ? 400 : 200), result);
     } catch (err) {
       const code = err.code === 'invalid_json' || err.code === 'body_too_large' ? 400 : 500;
@@ -122,13 +138,15 @@ async function route(intl, config, req, pathname, body, user, url) {
       reply_target: body.session_id || 'local',
     });
   }
-  if (req.method === 'GET' && pathname === '/v1/intl/leads') return { ok: true, leads: intl.leads() };
+  if (req.method === 'GET' && pathname === '/v1/intl/leads') {
+    return { ok: true, leads: intl.leads({ archived: url.searchParams.get('archived') === '1' }) };
+  }
   const one = pathname.match(/^\/v1\/intl\/leads\/([^/]+)$/);
   if (req.method === 'GET' && one) {
-    const lead = intl.lead(decodeURIComponent(one[1]));
+    const lead = await Promise.resolve(intl.lead(decodeURIComponent(one[1])));
     return lead ? { ok: true, lead } : { ok: false, status: 404, error_code: 'not_found' };
   }
-  const sub = pathname.match(/^\/v1\/intl\/leads\/([^/]+)\/(draft|send|reject|viewing|analyze|status)$/);
+  const sub = pathname.match(/^\/v1\/intl\/leads\/([^/]+)\/(draft|send|reject|viewing|analyze|status|stop|archive|apply-slot)$/);
   if (sub) {
     const id = decodeURIComponent(sub[1]);
     if (sub[2] === 'draft' && req.method === 'PUT') return intl.saveDraft(id, body);
@@ -136,8 +154,11 @@ async function route(intl, config, req, pathname, body, user, url) {
       return intl.send(id, { ...body, idempotency_key: req.headers['idempotency-key'] || body.idempotency_key }, user.id);
     }
     if (sub[2] === 'reject' && req.method === 'POST') return intl.reject(id, user.id);
+    if (sub[2] === 'archive' && req.method === 'POST') return intl.archive(id, user.id);
+    if (sub[2] === 'apply-slot' && req.method === 'POST') return intl.applySlot(id, body);
+    if (sub[2] === 'stop' && req.method === 'POST') return intl.stop(id, user.id);
     if (sub[2] === 'viewing' && req.method === 'POST') return intl.book(id, body.slot_id, user.id);
-    if (sub[2] === 'analyze' && req.method === 'POST') return { ok: true, lead: intl.lead(id) };
+    if (sub[2] === 'analyze' && req.method === 'POST') return { ok: true, lead: await Promise.resolve(intl.lead(id)) };
     if (sub[2] === 'status' && req.method === 'POST') return intl.setPipeline(id, body.pipeline, user.id);
   }
   const erase = pathname.match(/^\/v1\/intl\/leads\/([^/]+)\/erase$/);
@@ -150,11 +171,14 @@ async function route(intl, config, req, pathname, body, user, url) {
   if (req.method === 'GET' && pathname === '/v1/intl/properties') {
     const properties = intl.store.all('SELECT * FROM i_property WHERE active = 1 AND id != ?', ['general']).map((row) => ({
       ...row,
+      facts: JSON.parse(row.facts || '{}'),
       slots: intl.store.all(`SELECT * FROM i_slot WHERE property_id = ? AND status != 'removed' ORDER BY start_utc`, [row.id]),
     }));
     return { ok: true, properties };
   }
   if (req.method === 'POST' && pathname === '/v1/intl/properties') return intl.addProperty(body, user.id);
+  const brochure = pathname.match(/^\/v1\/intl\/properties\/([^/]+)\/brochure\.pdf$/);
+  if (brochure && req.method === 'GET') return intl.brochure(decodeURIComponent(brochure[1]));
   const slots = pathname.match(/^\/v1\/intl\/properties\/([^/]+)\/slots$/);
   if (slots && req.method === 'POST') return intl.addSlot(decodeURIComponent(slots[1]), body, user.id);
   if (slots && req.method === 'GET') {
@@ -174,7 +198,16 @@ async function route(intl, config, req, pathname, body, user, url) {
     );
     return { ok: true, viewings };
   }
-  if (pathname === '/v1/intl/settings' && req.method === 'GET') return { ok: true, settings: intl.getSettings(), manual_approval: true, auto_send_hot: false, ephemeral: config.EPHEMERAL_DISK === true };
+  if (pathname === '/v1/intl/settings' && req.method === 'GET') {
+    const saved = intl.getSettings();
+    return {
+      ok: true,
+      settings: saved,
+      manual_approval: true,
+      auto_send_hot: saved.auto_send_hot === '1' || saved.auto_send_hot === 'true',
+      ephemeral: config.EPHEMERAL_DISK === true,
+    };
+  }
   if (pathname === '/v1/intl/settings' && req.method === 'POST') return intl.settings(body, user.id);
   if (req.method === 'GET' && pathname === '/v1/intl/audit') return { ok: true, rows: intl.audit(url.searchParams.get('lead_id') || '') };
   if (req.method === 'POST' && pathname === '/v1/intl/seed') {
@@ -199,7 +232,7 @@ function serveStatic(res, pathname) {
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
   res.writeHead(200, {
     'Content-Type': types[path.extname(file)] || 'application/octet-stream',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self' blob:; connect-src 'self'",
     'Cache-Control': 'no-store',
   });
   fs.createReadStream(file).pipe(res);
@@ -228,6 +261,7 @@ async function startIntl(env = process.env) {
       intl.digestTick('schedule');
       intl.retain();
       intl.sweep();
+      intl.compete();
     } catch {
       console.error('intl_tick_failed');
     }

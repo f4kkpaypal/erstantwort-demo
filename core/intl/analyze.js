@@ -3,7 +3,6 @@
 const { normalize, parseAmount, applySuffix } = require('./normalize');
 
 const PRIORITY = ['price', 'finance', 'docs', 'viewing', 'area', 'avail', 'details'];
-const EN_WORDS = new Set('the is a an i you can do does what how hi hello please it to for in on at my we your this that are when have want'.split(' '));
 
 const INTENT = {
   price: { en: /\b(price|cost|how much|how much is|discount|negotiat\w*|lower the price|reduce|cheaper|best offer|go down|стоит)\b/i, ru: /(сколько стоит|стоит|цен[ауые]|стоимост|скидк|торг|снизить|дешевле|уступ)/i },
@@ -40,13 +39,7 @@ function detectLanguage(clean) {
   if (!stats.letters) return 'other';
   if (stats.arab && stats.arab >= stats.cyr && stats.arab >= stats.lat) return 'other';
   if (stats.cyr / stats.letters >= 0.5) return 'ru';
-  if (stats.lat >= stats.cyr) {
-    const words = clean.split(/\s+/);
-    const hits = words.filter((word) => EN_WORDS.has(word.replace(/[^\p{L}]/gu, ''))).length;
-    const keyword = PRIORITY.some((name) => INTENT[name].en.test(clean));
-    if (hits >= 2 || keyword) return 'en';
-    return 'other';
-  }
+  if (stats.lat > 0 && stats.lat >= stats.cyr) return 'en';
   return 'other';
 }
 

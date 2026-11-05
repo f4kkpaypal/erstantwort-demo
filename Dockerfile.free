@@ -6,6 +6,7 @@ COPY core ./core
 COPY engine ./engine
 COPY ui-intl ./ui-intl
 COPY fixtures/intl ./fixtures/intl
+COPY assets ./assets
 COPY db ./db
 COPY scripts/free_host.js ./scripts/free_host.js
 ENV NODE_ENV=production

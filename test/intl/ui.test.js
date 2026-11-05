@@ -42,6 +42,13 @@ test('the tab bar is fixed on every screen and the send bar sits above it', () =
   assert.match(appJs, /periodUnclear/);
   assert.match(appJs, /t\('resets'\)/);
   assert.match(appJs, /state\.ephemeral/);
+  assert.match(appJs, /id="openArchive"/);
+  assert.match(appJs, /id="archive"/);
+  assert.match(appJs, /contenteditable="true"/);
+  assert.match(appJs, /id="timePicker"/);
+  assert.match(css, /\.archive-btn\s*\{[^}]*font-size:\s*13px/s);
+  assert.match(css, /\.hd h1\s*\{[^}]*font-size:\s*30px/s);
+  assert.doesNotMatch(appJs, /wa\.me|window\.open|t\.me\//);
 });
 
 test('the Russian dictionary covers the chrome and does not leave English field labels', () => {

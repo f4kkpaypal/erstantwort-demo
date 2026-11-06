@@ -27,6 +27,13 @@ const state = {
   picker: false,
   attachments: [],
   editProperty: null,
+  inboxView: '',
+  openProperty: '',
+  showPropertyLeads: '',
+  propertyDrafts: {},
+  photoDraft: [],
+  calAnchor: '',
+  pdfFor: '',
 };
 if (query.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
 
@@ -244,8 +251,17 @@ function statusLabel(lead) {
   if (lead.status === 'pending_approval') return t('needsOk');
   if (lead.status === 'review') return t('needsReview');
   if (lead.status === 'stopped') return t('optedOut');
+  if (lead.bucket === 'confirmed' || (lead.status === 'sent' && lead.client_confirmed)) return t('confirmedMark');
+  if (lead.bucket === 'awaiting' || lead.status === 'sent') return t('awaitingMark');
   if (lead.pipeline === 'viewing') return t('viewingBooked');
   return t('replied');
+}
+
+function inquiryMark(lead) {
+  if (lead.status === 'stopped') return t('optedOut');
+  if (lead.bucket === 'confirmed' || (lead.status === 'sent' && lead.client_confirmed)) return t('confirmedMark');
+  if (lead.bucket === 'awaiting' || lead.status === 'sent') return t('awaitingMark');
+  return t('unanswered');
 }
 
 function timingText(lead) {
@@ -268,12 +284,6 @@ function clock(iso) {
   return new Intl.DateTimeFormat(state.lang === 'ru' ? 'ru-RU' : 'en-GB', {
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Dubai',
   }).format(new Date(iso));
-}
-
-function headDate() {
-  return new Intl.DateTimeFormat(state.lang === 'ru' ? 'ru-RU' : 'en-GB', {
-    timeZone: 'Asia/Dubai', weekday: 'short', day: 'numeric', month: 'short',
-  }).format(new Date()).replace(/[.,]/g, '');
 }
 
 function place(title) {
@@ -301,6 +311,28 @@ function utcDate(key) {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
+function shiftKey(key, days) {
+  const date = utcDate(key);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function weekStartKey(key) {
+  const start = utcDate(key);
+  const weekday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - weekday);
+  return start.toISOString().slice(0, 10);
+}
+
+function weekDates(anchorKey) {
+  const start = utcDate(weekStartKey(anchorKey));
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + index);
+    return day.toISOString().slice(0, 10);
+  });
+}
+
 function isoWeek(key) {
   const date = utcDate(key);
   const day = date.getUTCDay() || 7;
@@ -309,47 +341,89 @@ function isoWeek(key) {
   return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
 }
 
+function isMainListLead(lead, filter, propertyId) {
+  const bucket = lead.bucket || (lead.status === 'archived' ? 'archive' : lead.status === 'sent' ? 'awaiting' : 'active');
+  if (bucket !== 'active') return false;
+  if (filter && filter !== 'ALL' && (lead.readiness || lead.grade) !== filter) return false;
+  if (propertyId && lead.property_id !== propertyId) return false;
+  return true;
+}
+
+function countMainList(leads, filter, propertyId) {
+  return (leads || []).filter((lead) => isMainListLead(lead, filter, propertyId)).length;
+}
+
 async function refreshBadge() {
   const list = await api('/v1/intl/leads');
   state.leadRows = list.leads || [];
-  state.badge = state.leadRows.filter((lead) => lead.status === 'pending_approval' || lead.status === 'review').length;
+  state.badge = countMainList(state.leadRows, state.filter, state.propertyId);
   return state.badge;
+}
+
+function leadLink(lead, props) {
+  return `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(mark(lead))}"></span>
+    <div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi> <span class="g ${esc(mark(lead))}">${esc(mark(lead))}</span></div>
+    <div class="s">${channelChip(lead.channel, true)} · ${esc(propertyTitle(props, lead.property_id))}</div></div>
+    <div class="r"><b class="${lead.status === 'pending_approval' || lead.status === 'review' ? 'need' : ''}">${esc(statusLabel(lead))}</b>${esc(clock(lead.first_msg_at))}</div></a>`;
 }
 
 async function showInbox() {
   const [list, digest, props] = await Promise.all([api('/v1/intl/leads'), api('/v1/intl/digest'), api('/v1/intl/properties')]);
   const leads = list.leads || [];
-  const waiting = leads.filter((lead) => lead.status === 'pending_approval' || lead.status === 'review');
-  const rest = leads.filter((lead) => lead.status !== 'pending_approval' && lead.status !== 'review');
   const match = (lead) => (state.filter === 'ALL' || mark(lead) === state.filter) && (!state.propertyId || lead.property_id === state.propertyId);
-  const shownWait = waiting.filter(match);
-  const shownDone = rest.filter(match);
-  const pending = leads.filter((lead) => lead.status === 'pending_approval');
-  state.badge = waiting.length;
+  const awaiting = leads.filter((lead) => lead.bucket === 'awaiting').filter(match);
+  const confirmed = leads.filter((lead) => lead.bucket === 'confirmed').filter(match);
+  const active = leads.filter((lead) => isMainListLead(lead, state.filter, state.propertyId));
+  const mainCount = active.length;
+  const shownWait = active.filter((lead) => lead.status === 'pending_approval' || lead.status === 'review');
+  const shownDone = active.filter((lead) => lead.status !== 'pending_approval' && lead.status !== 'review');
+  state.badge = mainCount;
   state.leadRows = leads;
   const value = (digest.listed_value || []).map(moneyLine).join(' · ');
-  const row = (lead) => `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(mark(lead))}"></span>
-    <div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi> <span class="g ${esc(mark(lead))}">${esc(mark(lead))}</span></div>
-    <div class="s">${channelChip(lead.channel, true)} · ${esc(propertyTitle(props.properties, lead.property_id))}</div></div>
-    <div class="r"><b class="${lead.status === 'pending_approval' || lead.status === 'review' ? 'need' : ''}">${esc(statusLabel(lead))}</b>${esc(clock(lead.first_msg_at))}</div></a>`;
   const propName = state.propertyId ? propertyTitle(props.properties, state.propertyId) : '';
+  const properties = props.properties || [];
+  const row = (lead) => leadLink(lead, properties);
+  const awaitingRows = awaiting.map((lead) => `<div class="confirmrow">${row(lead)}<button class="btn sm" type="button" data-confirm="${esc(lead.id)}">${esc(t('markConfirmed'))}</button></div>`).join('');
+  let listHtml = '';
+  if (state.inboxView === 'awaiting') {
+    listHtml = awaiting.length
+      ? `<div class="sh"><span>${esc(t('awaitingTile'))} · ${awaiting.length}</span></div><div class="card">${awaitingRows}</div>`
+      : `<p class="foot">${esc(t('awaitingEmpty'))}</p>`;
+  } else if (state.inboxView === 'confirmed') {
+    listHtml = confirmed.length
+      ? `<div class="sh"><span>${esc(t('confirmedTile'))} · ${confirmed.length}</span></div><div class="card">${confirmed.map(row).join('')}</div>`
+      : `<p class="foot">${esc(t('confirmedEmpty'))}</p>`;
+  } else {
+    listHtml = `${shownWait.length ? `<div class="sh"><span>${esc(t('waiting'))} · ${mainCount}</span></div><div class="card">${shownWait.map(row).join('')}</div>` : ''}
+      ${shownDone.length ? `<div class="sh"><span>${esc(t('done'))} · ${shownDone.length}</span></div><div class="card">${shownDone.map(row).join('')}</div>` : ''}
+      ${!shownWait.length && !shownDone.length ? `<p class="foot">${esc(t('filterEmpty'))}</p>` : ''}`;
+  }
   shell(`${bar()}
-    <div class="hd"><div class="hd-row"><h1>${esc(t('inbox'))}</h1><a class="archive-btn" id="openArchive" href="#/archive">${ICO.box}<span>${esc(t('archive'))}</span></a></div><p>${esc(headDate())} · ${esc(fill('leadsLine', leads.length))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
-    <div class="stats"><div><b>${leads.length}</b>${esc(t('leadsTile'))}</div><div><b>${pending.length}</b>${esc(t('toApprove'))}</div></div>
-    ${pending.length ? `<a class="btn queuebtn" href="#/lead/${esc(pending[0].id)}">${esc(fill('reviewN', pending.length))}</a>` : ''}
-    <button class="btn sec queuebtn" id="openDigest" type="button">${esc(t('digestOpen'))}</button>
+    <div class="hd"><div class="hd-row"><h1>${esc(t('inbox'))}<span class="hd-count">${mainCount}</span></h1><a class="archive-btn" id="openArchive" href="#/archive">${ICO.box}<span>${esc(t('archive'))}</span></a></div></div>
+    <div class="stats"><button type="button" id="openAwaiting" class="${state.inboxView === 'awaiting' ? 'on' : ''}"><b>${awaiting.length}</b>${esc(t('awaitingTile'))}</button><button type="button" id="openConfirmed" class="${state.inboxView === 'confirmed' ? 'on' : ''}"><b>${confirmed.length}</b>${esc(t('confirmedTile'))}</button></div>
     <div class="seg">${['ALL', 'HOT', 'WARM', 'COLD'].map((grade) => `<button type="button" data-f="${grade}" class="${state.filter === grade ? 'on' : ''}">${grade === 'ALL' ? esc(t('all')) : grade}</button>`).join('')}</div>
     ${propName ? `<p class="foot">${esc(t('filterProperty'))}: ${esc(propName)} <button class="link inline" id="clearProp" type="button">${esc(t('clearFilter'))}</button></p>` : ''}
-    ${shownWait.length ? `<div class="sh"><span>${esc(t('waiting'))} · ${shownWait.length}</span></div><div class="card">${shownWait.map(row).join('')}</div>` : ''}
-    ${shownDone.length ? `<div class="sh"><span>${esc(t('done'))} · ${shownDone.length}</span></div><div class="card">${shownDone.map(row).join('')}</div>` : ''}
-    ${!shownWait.length && !shownDone.length ? `<p class="foot">${esc(t('filterEmpty'))}</p>` : ''}
+    ${listHtml}
     ${value ? `<p class="foot">${esc(t('listed'))}: ${esc(value)}. ${esc(t('notRevenue'))}</p>` : ''}
-    <p class="foot">${esc(t('scoreNote'))}</p>`, waiting.length);
+    <p class="foot">${esc(t('scoreNote'))}</p>`, mainCount);
   app.querySelectorAll('[data-f]').forEach((button) => {
     button.onclick = () => { state.filter = button.dataset.f; showInbox().catch(fail); };
   });
-  const openDigest = document.getElementById('openDigest');
-  if (openDigest) openDigest.onclick = () => go('#/digest');
+  const openAwaiting = document.getElementById('openAwaiting');
+  if (openAwaiting) openAwaiting.onclick = () => { state.inboxView = state.inboxView === 'awaiting' ? '' : 'awaiting'; showInbox().catch(fail); };
+  const openConfirmed = document.getElementById('openConfirmed');
+  if (openConfirmed) openConfirmed.onclick = () => { state.inboxView = state.inboxView === 'confirmed' ? '' : 'confirmed'; showInbox().catch(fail); };
+  app.querySelectorAll('[data-confirm]').forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await api(`/v1/intl/leads/${encodeURIComponent(button.dataset.confirm)}/confirm`, { method: 'POST', body: '{}' });
+        state.notice = t('confirmDone');
+      } catch (err) {
+        state.notice = errText(err);
+      }
+      showInbox().catch(fail);
+    };
+  });
   const clearProp = document.getElementById('clearProp');
   if (clearProp) clearProp.onclick = () => { state.propertyId = ''; showInbox().catch(fail); };
 }
@@ -448,6 +522,8 @@ async function showLead() {
     </div></div>
     ${stopped ? `<p class="foot">${esc(t('optedOut'))}</p>` : ''}
     ${lead.status === 'sent' ? `<p class="foot">${esc(t('sentSim'))}</p>` : ''}
+    ${lead.status === 'sent' && !lead.client_confirmed ? `<button class="btn queuebtn" id="confirmLead" type="button">${esc(t('markConfirmed'))}</button>` : ''}
+    ${lead.status === 'sent' && lead.client_confirmed ? `<p class="foot">${esc(t('confirmedMark'))}</p>` : ''}
     ${review ? `<p class="foot">${esc(t('notUnderstood'))}</p><button class="btn" id="manual" type="button">${esc(t('replyManually'))}</button>` : ''}
     ${lead.stale_sending ? `<p class="foot">${esc(t('stale'))}</p>` : ''}
     ${proposedNote}
@@ -560,6 +636,17 @@ async function showLead() {
       state.notice = errText(err);
       showLead().catch(fail);
     });
+  };
+  const confirmLead = document.getElementById('confirmLead');
+  if (confirmLead) confirmLead.onclick = async () => {
+    try {
+      await api(`/v1/intl/leads/${encodeURIComponent(lead.id)}/confirm`, { method: 'POST', body: '{}' });
+      state.loadedLead = '';
+      state.notice = t('confirmDone');
+      showLead().catch(fail);
+    } catch (err) {
+      report(err);
+    }
   };
 }
 
@@ -711,19 +798,75 @@ function dayHeading(zone) {
   return `${weekday} ${Number(zone.day)} ${month}`;
 }
 
-function weekStrip(items) {
+function weekStrip(items, anchorKey) {
   const days = state.lang === 'ru' ? ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] : ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-  const anchor = items[0] ? zoned(items[0].start_utc, items[0].tz) : zoned(new Date().toISOString(), 'Asia/Dubai');
-  const start = utcDate(anchor.key);
-  const weekday = (start.getUTCDay() + 6) % 7;
-  return `<div class="week">${days.map((label, index) => {
-    const day = new Date(start);
-    day.setUTCDate(start.getUTCDate() + (index - weekday));
-    const key = day.toISOString().slice(0, 10);
+  const keys = weekDates(anchorKey);
+  return `<div class="week cal-swipe" id="calSwipe">${keys.map((key) => {
+    const day = utcDate(key);
+    const label = days[(day.getUTCDay() + 6) % 7];
     const on = items.some((row) => zoned(row.start_utc, row.tz).key === key);
-    const selected = state.dayKey ? state.dayKey === key : index === weekday;
+    const selected = state.dayKey === key;
     return `<button class="day ${selected ? 'on' : ''}" type="button" data-day="${key}">${label}<b>${day.getUTCDate()}</b><i class="${on ? '' : 'no'}"></i></button>`;
   }).join('')}</div>`;
+}
+
+function bindCalendarSwipe(el) {
+  if (!el) return;
+  let x0 = 0;
+  let y0 = 0;
+  let axis = '';
+  let active = false;
+  let pointer = null;
+  let ignoreClick = false;
+  const moveWeek = (dir) => {
+    const y = window.scrollY;
+    state.calAnchor = shiftKey(state.calAnchor, dir * 7);
+    state.dayKey = '';
+    showViewings().then(() => window.scrollTo(0, y)).catch(fail);
+  };
+  const finish = (dx, dy) => {
+    active = false;
+    pointer = null;
+    if (axis !== 'x' || Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy)) return;
+    ignoreClick = true;
+    moveWeek(dx < 0 ? 1 : -1);
+  };
+  el.addEventListener('click', (event) => {
+    if (!ignoreClick) return;
+    ignoreClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  el.addEventListener('touchstart', (event) => {
+    if (event.touches.length !== 1) return;
+    active = true;
+    axis = '';
+    x0 = event.touches[0].clientX;
+    y0 = event.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', (event) => {
+    if (!active || event.touches.length !== 1) return;
+    const dx = event.touches[0].clientX - x0;
+    const dy = event.touches[0].clientY - y0;
+    if (!axis && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) axis = Math.abs(dx) > Math.abs(dy) * 1.15 ? 'x' : 'y';
+  }, { passive: true });
+  el.addEventListener('touchend', (event) => {
+    if (!active) return;
+    const touch = event.changedTouches[0];
+    finish(touch.clientX - x0, touch.clientY - y0);
+  }, { passive: true });
+  el.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    pointer = event.pointerId;
+    active = true;
+    axis = 'x';
+    x0 = event.clientX;
+    y0 = event.clientY;
+  });
+  el.addEventListener('pointerup', (event) => {
+    if (event.pointerType !== 'mouse' || event.pointerId !== pointer) return;
+    finish(event.clientX - x0, event.clientY - y0);
+  });
 }
 
 function viewingLabel(status) {
@@ -751,7 +894,14 @@ async function showArchive() {
 async function showViewings() {
   const [data, badge] = await Promise.all([api('/v1/intl/viewings'), refreshBadge()]);
   const rows = data.viewings || [];
-  const shown = state.dayKey ? rows.filter((row) => zoned(row.start_utc, row.tz).key === state.dayKey) : rows;
+  if (!state.calAnchor) {
+    const anchor = rows[0] ? zoned(rows[0].start_utc, rows[0].tz) : zoned(new Date().toISOString(), 'Asia/Dubai');
+    state.calAnchor = anchor.key;
+  }
+  const keys = weekDates(state.calAnchor);
+  if (state.dayKey && !keys.includes(state.dayKey)) state.dayKey = '';
+  const inWeek = rows.filter((row) => keys.includes(zoned(row.start_utc, row.tz).key));
+  const shown = state.dayKey ? inWeek.filter((row) => zoned(row.start_utc, row.tz).key === state.dayKey) : inWeek;
   const groups = new Map();
   for (const row of shown) {
     const zone = zoned(row.start_utc, row.tz);
@@ -770,14 +920,14 @@ async function showViewings() {
     }
     return `<div class="ev"><div class="tm">${esc(`${time.hour}:${time.minute}`)}<small>${esc(t('minutes'))}</small></div><div class="card"><a href="#/lead/${esc(row.lead_id)}"><div class="kind">${esc(t('viewingWord'))}</div><h3>${esc(place(row.title || ''))}</h3><p><bdi dir="auto">${esc(row.clean_name || row.sender_name || '')}</bdi> · <span class="${ok ? 'state-ok' : ''}">${esc(viewingLabel(row.status))}</span></p>${channelChip(row.channel)}</a>${actions.length ? `<div class="btnrow">${actions.join('')}</div>` : ''}</div></div>`;
   }).join('')}`).join('');
-  const anchor = rows[0] ? zoned(rows[0].start_utc, rows[0].tz) : zoned(new Date().toISOString(), 'Asia/Dubai');
   shell(`${bar()}
-    <div class="hd"><h1>${esc(t('viewings'))}</h1><p>${esc(fill('viewingsLine', { w: isoWeek(anchor.key), n: rows.length }))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
-    ${weekStrip(rows)}
+    <div class="hd"><h1>${esc(t('viewings'))}</h1><p>${esc(fill('viewingsLine', { w: isoWeek(state.calAnchor), n: inWeek.length }))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
+    ${weekStrip(rows, state.calAnchor)}
     ${state.dayKey ? `<p class="foot"><button class="link inline" id="clearDay" type="button">${esc(t('clearFilter'))}</button></p>` : ''}
     ${cards || `<p class="foot">${esc(t('filterEmpty'))}</p>`}
     <p class="foot" id="formError" role="alert"></p>
     <p class="foot">${esc(t('viewingsFoot'))}</p>`, badge);
+  bindCalendarSwipe(document.getElementById('calSwipe'));
   app.querySelectorAll('[data-day]').forEach((button) => {
     button.onclick = () => {
       state.dayKey = state.dayKey === button.dataset.day ? '' : button.dataset.day;
@@ -812,8 +962,45 @@ function roomsOf(row) {
 
 async function showProperties() {
   const [data, badge] = await Promise.all([api('/v1/intl/properties'), refreshBadge()]);
+  const properties = data.properties || [];
+  if (state.addProperty) {
+    const key = propertyDraftKey();
+    if (!state.propertyDrafts[key]) state.propertyDrafts[key] = draftFromRow(state.editProperty);
+    state.photoDraft = (state.propertyDrafts[key].photos || []).map((photo) => ({ ...photo }));
+  }
   const editing = state.editProperty;
-  const cards = (data.properties || []).map((row) => {
+  const formFor = (row) => {
+    const key = row?.id || 'new';
+    const fields = state.propertyDrafts[key] || draftFromRow(row);
+    const thumbs = (fields.photos || []).map((photo, index) => `<figure><img src="${esc(photo.dataUrl)}" alt=""><button type="button" data-rm="${index}">${esc(t('removePhoto'))}</button></figure>`).join('');
+    const preview = state.pdfFor && state.pdfFor === (row?.id || '') && state.fileUrl
+      ? `<iframe class="fileview" title="${esc(t('makePdf'))}" src="${esc(state.fileUrl)}"></iframe>`
+      : '';
+    return `<form class="card form" id="propForm">
+      <input id="ptitle" maxlength="120" placeholder="${esc(t('titlePh'))}" value="${esc(fields.title || '')}">
+      <input id="paddress" maxlength="160" placeholder="${esc(t('addressPh'))}" value="${esc(fields.address || '')}">
+      <input id="pdistrict" maxlength="80" placeholder="${esc(t('districtPh'))}" value="${esc(fields.district || '')}">
+      <select id="pkind"><option value="rent">${esc(t('rent'))}</option><option value="sale">${esc(t('sale'))}</option></select>
+      <select id="pcurrency"><option>USD</option><option>AED</option></select>
+      <select id="pperiod"></select>
+      <input id="pprice" inputmode="decimal" placeholder="${esc(t('pricePh'))}" value="${esc(fields.price ?? '')}">
+      <input id="prooms" inputmode="numeric" placeholder="${esc(t('roomsPh'))}" value="${esc(fields.rooms ?? '')}">
+      <input id="parea" inputmode="decimal" placeholder="${esc(t('areaPh'))}" value="${esc(fields.area ?? '')}">
+      <select id="punit"><option value="sqft">sqft</option><option value="sqm">sqm</option></select>
+      <input id="plink" maxlength="500" placeholder="${esc(t('linkPh'))}" value="${esc(fields.link || '')}">
+      <label class="btn sec filebtn" id="addPhotos">${esc(t('addPhotos'))}<input id="pphotos" type="file" accept="image/*" multiple></label>
+      ${thumbs ? `<div class="thumbs">${thumbs}</div>` : ''}
+      <button class="btn sec" id="makePdf" type="button">${esc(t('makePdf'))}</button>
+      ${preview}
+      <label class="check"><input id="pbrochure" type="checkbox" ${fields.brochure ? 'checked' : ''}> ${esc(t('makeBrochure'))}</label>
+      <button class="btn" id="saveProp" type="submit">${esc(t('saveProperty'))}</button>
+      <button class="btn sec" id="backProp" type="button">${esc(t('backNav'))}</button>
+      <p id="formError" role="alert"></p>
+    </form>`;
+  };
+  const newForm = state.addProperty && !editing ? formFor(null) : '';
+  const cards = properties.map((row) => {
+    const open = state.openProperty === row.id;
     const price = state.lang === 'ru' ? (row.price_ru || '') : (row.price_en || '');
     const meta = row.price_period === 'total' ? kindLabel(row.kind) : `${kindLabel(row.kind)} · ${periodLabel(row.price_period)}`;
     const rooms = roomsOf(row);
@@ -822,75 +1009,137 @@ async function showProperties() {
       row.district,
       rooms !== '' ? `${rooms} ${state.lang === 'ru' ? 'комн.' : 'bd'}` : '',
       row.area_value ? `${row.area_value} ${row.area_unit || ''}`.trim() : '',
+      (row.photos || []).length ? fill('photoCount', row.photos.length) : '',
     ].filter(Boolean);
     const files = [
       row.brochure_url ? t('brochure') : '',
-      row.plan_url ? t('floorPlan') : '',
       row.listing_url ? t('linkPh') : '',
     ].filter(Boolean);
-    return `<article class="propcard"><div class="oi">${ICO.home}</div><h3>${esc(row.title || '')}</h3><p>${esc(meta)}</p><div class="price">${esc(price)}</div>${bits.length ? `<p>${esc(bits.join(' · '))}</p>` : ''}${files.length ? `<p class="files">${esc(files.join(' · '))}</p>` : ''}<div class="btnrow"><button class="btn sec sm" type="button" data-prop="${esc(row.id)}">${esc(t('openLeads'))}</button><button class="btn sec sm" type="button" data-edit="${esc(row.id)}">${esc(t('editProperty'))}</button></div></article>`;
+    const asked = (state.leadRows || []).filter((lead) => lead.property_id === row.id);
+    const leadsHtml = state.showPropertyLeads === row.id
+      ? (asked.length
+        ? `<div class="card">${asked.map((lead) => `<a class="item chev" href="#/lead/${esc(lead.id)}"><span class="dot ${esc(mark(lead))}"></span><div class="main"><div class="t"><bdi dir="auto">${esc(lead.clean_name || lead.sender_name || lead.id)}</bdi></div><div class="s">${esc(inquiryMark(lead))}</div></div></a>`).join('')}</div>`
+        : `<p class="foot">${esc(t('propertyLeadsEmpty'))}</p>`)
+      : '';
+    const editor = open && state.addProperty && editing && editing.id === row.id ? formFor(row) : '';
+    return `<article class="propcard ${open ? 'open' : ''}"><button class="prophead" type="button" data-acc="${esc(row.id)}"><span class="oi">${ICO.home}</span><span class="prophead-tx"><h3>${esc(row.title || '')}</h3><p>${esc(meta)}${price ? ` · ${esc(price)}` : ''}</p></span><span class="acc">${open ? '▾' : '›'}</span></button>${open ? `<div class="propbody">${bits.length ? `<p>${esc(bits.join(' · '))}</p>` : ''}${files.length ? `<p class="files">${esc(files.join(' · '))}</p>` : ''}<div class="btnrow"><button class="btn sec sm" type="button" data-prop="${esc(row.id)}">${esc(t('openLeads'))}</button><button class="btn sec sm" type="button" data-edit="${esc(row.id)}">${esc(t('editProperty'))}</button></div>${leadsHtml}${editor}</div>` : ''}</article>`;
   }).join('');
-  const form = state.addProperty ? `<form class="card form" id="propForm">
-      <input id="ptitle" maxlength="120" placeholder="${esc(t('titlePh'))}" value="${esc(editing?.title || '')}">
-      <input id="paddress" maxlength="160" placeholder="${esc(t('addressPh'))}" value="${esc(editing?.address || '')}">
-      <input id="pdistrict" maxlength="80" placeholder="${esc(t('districtPh'))}" value="${esc(editing?.district || '')}">
-      <select id="pkind"><option value="rent">${esc(t('rent'))}</option><option value="sale">${esc(t('sale'))}</option></select>
-      <select id="pcurrency"><option>USD</option><option>AED</option></select>
-      <select id="pperiod"></select>
-      <input id="pprice" inputmode="decimal" placeholder="${esc(t('pricePh'))}" value="${editing?.price != null ? esc(editing.price) : ''}">
-      <input id="prooms" inputmode="numeric" placeholder="${esc(t('roomsPh'))}" value="${esc(roomsOf(editing || {}))}">
-      <input id="parea" inputmode="decimal" placeholder="${esc(t('areaPh'))}" value="${editing?.area_value != null ? esc(editing.area_value) : ''}">
-      <select id="punit"><option value="sqft">sqft</option><option value="sqm">sqm</option></select>
-      <input id="plink" maxlength="500" placeholder="${esc(t('linkPh'))}" value="${esc(editing?.listing_url || '')}">
-      <input id="pplan" maxlength="500" placeholder="${esc(t('planPh'))}" value="${esc(String(editing?.plan_url || '').startsWith('data:') ? '' : (editing?.plan_url || ''))}">
-      <input id="pplanfile" type="file" accept="image/png,image/jpeg,image/webp,application/pdf">
-      <label class="check"><input id="pbrochure" type="checkbox" ${editing?.brochure_url ? 'checked' : ''}> ${esc(t('makeBrochure'))}</label>
-      <button class="btn" id="saveProp" type="submit">${esc(t('saveProperty'))}</button>
-      <button class="btn sec" id="cancelProp" type="button">${esc(t('cancelView'))}</button>
-      <p id="formError" role="alert"></p>
-    </form>` : `<button class="btn sec queuebtn" id="addProp" type="button">${esc(t('addProperty'))}</button>`;
   shell(`${bar()}
     <div class="hd"><h1>${esc(t('properties'))}</h1><p>${esc(t('propertiesSub'))} <span class="demotag">${esc(t('demoTag'))}</span></p></div>
-    ${form}
+    ${newForm || `<button class="btn sec queuebtn" id="addProp" type="button">${esc(t('addProperty'))}</button>`}
     <div class="proplist">${cards}</div>
     <p class="foot">${esc(t('proposals'))}</p>`, badge);
+  const fields = state.addProperty ? (state.propertyDrafts[propertyDraftKey()] || draftFromRow(editing)) : null;
+  app.querySelectorAll('[data-acc]').forEach((button) => {
+    button.onclick = () => {
+      rememberPropertyDraft();
+      const id = button.dataset.acc;
+      const next = state.openProperty === id ? '' : id;
+      if (state.addProperty && editing && editing.id !== next) state.addProperty = false;
+      state.openProperty = next;
+      if (state.showPropertyLeads && state.showPropertyLeads !== next) state.showPropertyLeads = '';
+      showProperties().catch(fail);
+    };
+  });
   app.querySelectorAll('[data-prop]').forEach((button) => {
-    button.onclick = () => { state.propertyId = button.dataset.prop; go('#/inbox'); };
+    button.onclick = () => {
+      const id = button.dataset.prop;
+      state.openProperty = id;
+      state.showPropertyLeads = state.showPropertyLeads === id ? '' : id;
+      showProperties().catch(fail);
+    };
   });
   app.querySelectorAll('[data-edit]').forEach((button) => {
     button.onclick = () => {
-      state.editProperty = (data.properties || []).find((row) => row.id === button.dataset.edit) || null;
+      rememberPropertyDraft();
+      const row = properties.find((item) => item.id === button.dataset.edit) || null;
+      state.editProperty = row;
       state.addProperty = true;
+      state.openProperty = row ? row.id : '';
+      if (row && !state.propertyDrafts[row.id]) state.propertyDrafts[row.id] = draftFromRow(row);
       showProperties().catch(fail);
     };
   });
   const add = document.getElementById('addProp');
-  if (add) add.onclick = () => { state.editProperty = null; state.addProperty = true; showProperties().catch(fail); };
-  const cancel = document.getElementById('cancelProp');
-  if (cancel) cancel.onclick = () => { state.addProperty = false; state.editProperty = null; showProperties().catch(fail); };
+  if (add) add.onclick = () => {
+    rememberPropertyDraft();
+    state.editProperty = null;
+    state.addProperty = true;
+    state.openProperty = '';
+    if (!state.propertyDrafts.new) state.propertyDrafts.new = blankDraft();
+    showProperties().catch(fail);
+  };
+  const back = document.getElementById('backProp');
+  if (back) back.onclick = () => {
+    rememberPropertyDraft();
+    const key = propertyDraftKey();
+    const dirty = draftIsDirty(key, state.editProperty);
+    state.addProperty = false;
+    if (dirty) state.notice = t('draftKept');
+    showProperties().catch(fail);
+  };
   const formEl = document.getElementById('propForm');
-  if (formEl) {
+  if (formEl && fields) {
     const fillPeriods = () => {
       const kind = document.getElementById('pkind').value;
       const options = kind === 'sale' ? [['total', t('perTotal')]] : [['year', t('perYear')], ['month', t('perMonth')]];
+      const current = document.getElementById('pperiod').value || fields.period;
       document.getElementById('pperiod').innerHTML = options.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+      const allowed = options.some(([value]) => value === current);
+      document.getElementById('pperiod').value = allowed ? current : options[0][0];
     };
+    document.getElementById('pkind').value = fields.kind || 'rent';
     fillPeriods();
-    if (editing) {
-      document.getElementById('pkind').value = editing.kind || 'rent';
-      fillPeriods();
-      document.getElementById('pcurrency').value = editing.currency || 'USD';
-      document.getElementById('pperiod').value = editing.price_period || (editing.kind === 'sale' ? 'total' : 'year');
-      if (editing.area_unit) document.getElementById('punit').value = editing.area_unit;
-    }
+    document.getElementById('pcurrency').value = fields.currency || 'USD';
+    if (fields.unit) document.getElementById('punit').value = fields.unit;
     document.getElementById('pkind').onchange = fillPeriods;
+    const photos = document.getElementById('pphotos');
+    if (photos) photos.onchange = async () => {
+      const files = [...(photos.files || [])];
+      rememberPropertyDraft();
+      try {
+        const added = [];
+        for (const file of files) added.push({ dataUrl: await readPhoto(file) });
+        const key = propertyDraftKey();
+        const next = [...(state.propertyDrafts[key].photos || []), ...added];
+        if (next.length > 12) {
+          state.notice = t('photoLimit');
+          showProperties().catch(fail);
+          return;
+        }
+        state.propertyDrafts[key].photos = next;
+        state.photoDraft = next;
+        showProperties().catch(fail);
+      } catch (err) {
+        report(err);
+      }
+    };
+    app.querySelectorAll('[data-rm]').forEach((button) => {
+      button.onclick = () => {
+        rememberPropertyDraft();
+        const key = propertyDraftKey();
+        state.propertyDrafts[key].photos = (state.propertyDrafts[key].photos || []).filter((_, index) => String(index) !== button.dataset.rm);
+        state.photoDraft = state.propertyDrafts[key].photos;
+        showProperties().catch(fail);
+      };
+    });
+    const makePdf = document.getElementById('makePdf');
+    if (makePdf) makePdf.onclick = () => {
+      rememberPropertyDraft();
+      const row = state.editProperty;
+      if (!row || !row.id || draftIsDirty(row.id, row)) {
+        state.notice = t('pdfNeedsSave');
+        showProperties().catch(fail);
+        return;
+      }
+      openPropertyPdf(row.id).catch((err) => { state.notice = errText(err); showProperties().catch(fail); });
+    };
     formEl.onsubmit = async (event) => {
       event.preventDefault();
       try {
-        const file = document.getElementById('pplanfile').files && document.getElementById('pplanfile').files[0];
-        const plan = file ? await readPlan(file) : document.getElementById('pplan').value.trim();
         const rooms = document.getElementById('prooms').value.trim();
         const area = document.getElementById('parea').value.trim();
+        const key = propertyDraftKey();
         await api('/v1/intl/properties', {
           method: 'POST',
           body: JSON.stringify({
@@ -906,15 +1155,19 @@ async function showProperties() {
             area_value: area === '' ? null : Number(area),
             area_unit: area === '' ? '' : document.getElementById('punit').value,
             listing_url: document.getElementById('plink').value.trim(),
-            plan_url: plan,
+            plan_url: editing?.plan_url || '',
+            photos: (state.photoDraft || []).map((photo) => (photo.id ? `file:${photo.id}` : photo.dataUrl)),
             make_brochure: document.getElementById('pbrochure').checked,
             tz: editing?.tz || 'Asia/Dubai',
             tz_label_en: editing?.tz_label_en || 'Dubai time',
             tz_label_ru: editing?.tz_label_ru || 'время Дубая',
           }),
         });
+        delete state.propertyDrafts[key];
+        state.photoDraft = [];
         state.addProperty = false;
         state.editProperty = null;
+        state.pdfFor = '';
         state.notice = t('propertySaved');
         showProperties().catch(fail);
       } catch (err) {
@@ -924,17 +1177,125 @@ async function showProperties() {
   }
 }
 
-function readPlan(file) {
+function blankDraft() {
+  return {
+    title: '', address: '', district: '', kind: 'rent', currency: 'USD', period: 'year',
+    price: '', rooms: '', area: '', unit: 'sqft', link: '', brochure: false, photos: [],
+  };
+}
+
+function draftFromRow(row) {
+  if (!row) return blankDraft();
+  const rooms = roomsOf(row);
+  return {
+    title: row.title || '',
+    address: row.address || '',
+    district: row.district || '',
+    kind: row.kind || 'rent',
+    currency: row.currency || 'USD',
+    period: row.price_period || (row.kind === 'sale' ? 'total' : 'year'),
+    price: row.price != null ? String(row.price) : '',
+    rooms: rooms === '' || rooms == null ? '' : String(rooms),
+    area: row.area_value != null && row.area_value !== '' ? String(row.area_value) : '',
+    unit: row.area_unit || 'sqft',
+    link: row.listing_url || '',
+    brochure: Boolean(row.brochure_url),
+    photos: (row.photos || []).map((photo) => ({ id: photo.id, dataUrl: photo.data_url })),
+  };
+}
+
+function propertyDraftKey() {
+  return state.editProperty && state.editProperty.id ? state.editProperty.id : 'new';
+}
+
+function normalizeDraft(draft) {
+  return {
+    title: draft.title || '',
+    address: draft.address || '',
+    district: draft.district || '',
+    kind: draft.kind || 'rent',
+    currency: draft.currency || 'USD',
+    period: draft.period || 'year',
+    price: String(draft.price ?? ''),
+    rooms: String(draft.rooms ?? ''),
+    area: String(draft.area ?? ''),
+    unit: draft.unit || 'sqft',
+    link: draft.link || '',
+    brochure: Boolean(draft.brochure),
+    photos: (draft.photos || []).map((photo) => photo.id || photo.dataUrl || ''),
+  };
+}
+
+function draftIsDirty(key, row) {
+  const draft = state.propertyDrafts[key];
+  if (!draft) return false;
+  return JSON.stringify(normalizeDraft(draft)) !== JSON.stringify(normalizeDraft(draftFromRow(row)));
+}
+
+function rememberPropertyDraft() {
+  const form = document.getElementById('propForm');
+  if (!form) return;
+  const key = propertyDraftKey();
+  state.propertyDrafts[key] = {
+    title: document.getElementById('ptitle').value,
+    address: document.getElementById('paddress').value,
+    district: document.getElementById('pdistrict').value,
+    kind: document.getElementById('pkind').value,
+    currency: document.getElementById('pcurrency').value,
+    period: document.getElementById('pperiod').value,
+    price: document.getElementById('pprice').value,
+    rooms: document.getElementById('prooms').value,
+    area: document.getElementById('parea').value,
+    unit: document.getElementById('punit').value,
+    link: document.getElementById('plink').value,
+    brochure: Boolean(document.getElementById('pbrochure').checked),
+    photos: (state.photoDraft || []).map((photo) => ({ id: photo.id, dataUrl: photo.dataUrl })),
+  };
+}
+
+function readPhoto(file) {
   return new Promise((resolve, reject) => {
-    if (file.size > 80000) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const failPhoto = () => {
+      URL.revokeObjectURL(url);
       reject(Object.assign(new Error('invalid_property'), { body: { error_code: 'invalid_property' } }));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(Object.assign(new Error('invalid_property'), { body: { error_code: 'invalid_property' } }));
-    reader.readAsDataURL(file);
+    };
+    img.onload = () => {
+      const scale = Math.min(1, 1280 / Math.max(img.width || 1, img.height || 1));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
+      canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      let quality = 0.72;
+      let data = canvas.toDataURL('image/jpeg', quality);
+      while (data.length > 48000 && quality > 0.42) {
+        quality -= 0.08;
+        data = canvas.toDataURL('image/jpeg', quality);
+      }
+      URL.revokeObjectURL(url);
+      if (!data.startsWith('data:image/jpeg') || data.length > 120000) {
+        reject(Object.assign(new Error('invalid_property'), { body: { error_code: 'invalid_property' } }));
+        return;
+      }
+      resolve(data);
+    };
+    img.onerror = failPhoto;
+    img.src = url;
   });
+}
+
+async function openPropertyPdf(id) {
+  const res = await fetch(`/v1/intl/properties/${encodeURIComponent(id)}/brochure.pdf`, {
+    headers: { Authorization: state.tma ? `tma ${state.tma}` : '' },
+  });
+  if (!res.ok) throw Object.assign(new Error('not_found'), { body: { error_code: 'not_found' } });
+  const buf = await res.arrayBuffer();
+  if (state.fileUrl) URL.revokeObjectURL(state.fileUrl);
+  state.fileUrl = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+  state.pdfFor = id;
+  state.notice = t('pdfReady');
+  showProperties().catch(fail);
 }
 
 async function pokeSetting(body, lockedText) {
@@ -1039,6 +1400,7 @@ async function showDigest() {
 }
 
 async function boot() {
+  rememberPropertyDraft();
   captureLaunch();
   state.dict = await fetch(`i18n/${state.lang}.json`).then((res) => res.json());
   if (!state.tma) {

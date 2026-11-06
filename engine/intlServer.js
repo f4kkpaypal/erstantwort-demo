@@ -29,7 +29,7 @@ function readBody(req) {
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > 180000) {
+      if (size > 900000) {
         reject(Object.assign(new Error('body_too_large'), { code: 'body_too_large' }));
         req.destroy();
         return;
@@ -146,7 +146,7 @@ async function route(intl, config, req, pathname, body, user, url) {
     const lead = await Promise.resolve(intl.lead(decodeURIComponent(one[1])));
     return lead ? { ok: true, lead } : { ok: false, status: 404, error_code: 'not_found' };
   }
-  const sub = pathname.match(/^\/v1\/intl\/leads\/([^/]+)\/(draft|send|reject|viewing|analyze|status|stop|archive|apply-slot)$/);
+  const sub = pathname.match(/^\/v1\/intl\/leads\/([^/]+)\/(draft|send|reject|viewing|analyze|status|stop|archive|apply-slot|confirm)$/);
   if (sub) {
     const id = decodeURIComponent(sub[1]);
     if (sub[2] === 'draft' && req.method === 'PUT') return intl.saveDraft(id, body);
@@ -155,6 +155,7 @@ async function route(intl, config, req, pathname, body, user, url) {
     }
     if (sub[2] === 'reject' && req.method === 'POST') return intl.reject(id, user.id);
     if (sub[2] === 'archive' && req.method === 'POST') return intl.archive(id, user.id);
+    if (sub[2] === 'confirm' && req.method === 'POST') return intl.confirm(id, user.id);
     if (sub[2] === 'apply-slot' && req.method === 'POST') return intl.applySlot(id, body);
     if (sub[2] === 'stop' && req.method === 'POST') return intl.stop(id, user.id);
     if (sub[2] === 'viewing' && req.method === 'POST') return intl.book(id, body.slot_id, user.id);
@@ -172,6 +173,7 @@ async function route(intl, config, req, pathname, body, user, url) {
     const properties = intl.store.all('SELECT * FROM i_property WHERE active = 1 AND id != ?', ['general']).map((row) => ({
       ...row,
       facts: JSON.parse(row.facts || '{}'),
+      photos: intl.photos(row.id),
       slots: intl.store.all(`SELECT * FROM i_slot WHERE property_id = ? AND status != 'removed' ORDER BY start_utc`, [row.id]),
     }));
     return { ok: true, properties };

@@ -80,6 +80,8 @@ class IntlStore {
     this.db.exec(SCHEMA);
     ensureColumn(this.db, 'i_lead', 'readiness', 'ALTER TABLE i_lead ADD COLUMN readiness TEXT');
     ensureColumn(this.db, 'i_lead', 'proposed_utc', 'ALTER TABLE i_lead ADD COLUMN proposed_utc TEXT');
+    ensureColumn(this.db, 'i_lead', 'client_confirmed', 'ALTER TABLE i_lead ADD COLUMN client_confirmed INTEGER DEFAULT 0');
+    ensureColumn(this.db, 'i_property', 'photos', 'ALTER TABLE i_property ADD COLUMN photos TEXT');
     for (const [name, type] of [
       ['address', 'TEXT'],
       ['district', 'TEXT'],

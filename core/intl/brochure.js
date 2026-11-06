@@ -2,9 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, rgb } = require('pdf-lib');
+const { PDFDocument } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const { formatPrice } = require('./options');
+const { renderTemplate } = require('./pdfTemplate');
 
 const SANS = path.join(__dirname, '..', '..', 'assets', 'fonts', 'NotoSans-Regular.ttf');
 const NASKH = path.join(__dirname, '..', '..', 'assets', 'fonts', 'NotoNaskhArabic-Regular.ttf');
@@ -62,23 +63,33 @@ function brochureLines(property, meta = {}) {
   ].map((line) => String(line || '').trim()).filter(Boolean);
 }
 
+async function embedPhotos(doc, photos) {
+  const images = [];
+  for (const photo of photos || []) {
+    try {
+      const bytes = Buffer.from(photo.bytes);
+      const mime = String(photo.mime || '');
+      const image = mime.includes('png') ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+      images.push(image);
+    } catch { /* a photo this pipeline cannot draw is left out of the page */ }
+  }
+  return images;
+}
+
 async function brochurePdf(property, meta = {}) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const sans = await doc.embedFont(fs.readFileSync(SANS), { subset: true });
   const naskh = await doc.embedFont(fs.readFileSync(NASKH), { subset: true, features: ARABIC_FEATURES });
   const page = doc.addPage([595, 842]);
-  let y = 790;
-  for (const line of brochureLines(property || {}, meta)) {
-    const arabic = /[\u0600-\u06FF]/.test(line);
-    const font = arabic ? naskh : sans;
-    const shown = visualLine(line);
-    const width = font.widthOfTextAtSize(shown, y > 760 ? 18 : 13);
-    const x = arabic ? Math.max(48, 547 - width) : 48;
-    page.drawText(shown, { x, y, size: y > 760 ? 18 : 13, font, color: rgb(0.1, 0.1, 0.12) });
-    y -= 28;
-    if (y < 72) break;
-  }
+  const photos = await embedPhotos(doc, meta.photos);
+  renderTemplate({
+    page,
+    fonts: { sans, naskh },
+    lines: brochureLines(property || {}, meta),
+    photos,
+    visualLine,
+  });
   return Buffer.from(await doc.save());
 }
 

@@ -66,6 +66,8 @@ function createIntl(config, options = {}) {
     leads(query) { return listPresent(api, query || {}); },
     digest() { return buildDigest(api, config); },
     addProperty(body, actor) { return lock(() => addProperty(api, config, body, actor)); },
+    photos(id) { return publicPhotos(store, id); },
+    confirm(leadId, actor) { return lock(() => confirmLead(api, config, leadId, actor)); },
     brochure(id) { return brochureFor(api, id); },
     publicFile(id, exp, sig) { return openPublicFile(api, config, id, exp, sig); },
     addSlot(propertyId, body, actor) { return lock(() => addSlot(api, config, propertyId, body, actor)); },
@@ -557,6 +559,7 @@ function loadLead(store, id) {
     asks_discount: row.asks_discount === 1,
     cash: row.cash === 1,
     optout: row.optout === 1,
+    client_confirmed: row.client_confirmed === 1,
     budget: row.budget_amount == null ? null : { amount: row.budget_amount, currency: row.budget_currency, period: row.budget_period },
     timing: row.timing_class ? { class: row.timing_class, label_en: row.timing_label, label_ru: row.timing_label } : null,
   };
@@ -696,7 +699,15 @@ function presentWithOffer(api, config, lead, property, analysis, inbound, matche
     match: matched,
     stale_sending: sends.some((row) => row.fail_reason === 'stale_sending'),
     events: humanEvents(api, lead),
+    bucket: leadBucket(lead),
   };
+}
+
+function leadBucket(lead) {
+  if (!lead || lead.status === 'archived') return 'archive';
+  if (lead.status === 'sent' && lead.client_confirmed) return 'confirmed';
+  if (lead.status === 'sent') return 'awaiting';
+  return 'active';
 }
 
 function listPresent(api, query = {}) {
@@ -710,7 +721,7 @@ function listPresent(api, query = {}) {
     if (readinessRank(a) !== readinessRank(b)) return readinessRank(a) - readinessRank(b);
     if (b.score !== a.score) return b.score - a.score;
     return String(a.first_msg_at).localeCompare(String(b.first_msg_at));
-  });
+  }).map((lead) => ({ ...lead, bucket: leadBucket(lead) }));
 }
 
 function humanEvents(api, lead) {
@@ -872,6 +883,18 @@ function archiveLead(api, config, leadId, actor) {
   api.store.run('DELETE FROM i_draft WHERE lead_id=?', [leadId]);
   audit(api.store, config, 'archive', leadId, {}, actor || 'broker');
   return { ok: true, status: 'archived', simulated: true, sent: false };
+}
+
+function confirmLead(api, config, leadId, actor) {
+  const lead = loadLead(api.store, leadId);
+  if (!lead) return fail(404, 'not_found');
+  if (lead.optout || lead.status === 'stopped') return fail(409, 'lead_stopped');
+  if (lead.status === 'archived') return fail(409, 'not_pending');
+  if (lead.status !== 'sent') return fail(409, 'not_replied');
+  if (lead.client_confirmed) return { ok: true, status: 'sent', client_confirmed: true, simulated: true, sent: false };
+  api.store.run('UPDATE i_lead SET client_confirmed = 1 WHERE id = ?', [leadId]);
+  audit(api.store, config, 'lead_confirm', leadId, {}, actor || 'broker');
+  return { ok: true, status: 'sent', client_confirmed: true, simulated: true, sent: false };
 }
 
 function applyChosenSlot(api, config, leadId, body) {
@@ -1057,8 +1080,7 @@ async function openPublicFile(api, config, id, exp, sig) {
     const propertyId = String(id).slice('brochure:'.length);
     const property = propertyRow(api.store, propertyId);
     if (!property || property.id === 'general') return fail(404, 'not_found');
-    const settings = readSettings(api.store);
-    const bytes = await brochurePdf(property, { brokerName: settings.broker_name || property.agency || 'Broker' });
+    const bytes = await brochurePdf(property, brochureMeta(api, property));
     return fileResponse(bytes, 'application/pdf', `${propertyId}.pdf`);
   }
   const row = api.store.one('SELECT mime, name, bytes FROM i_file WHERE id = ?', [id]);
@@ -1077,6 +1099,71 @@ function fileResponse(bytes, mime, name) {
       'Cache-Control': 'private, max-age=300',
     },
   };
+}
+
+function photoIdList(store, propertyId) {
+  const row = store.one('SELECT photos FROM i_property WHERE id = ?', [propertyId]);
+  let ids = [];
+  try { ids = JSON.parse((row && row.photos) || '[]'); } catch { ids = []; }
+  return Array.isArray(ids) ? ids : [];
+}
+
+function publicPhotos(store, propertyId) {
+  return photoIdList(store, propertyId).map((id) => {
+    const file = store.one('SELECT id, mime, bytes FROM i_file WHERE id = ?', [id]);
+    if (!file || file.bytes == null) return null;
+    const bytes = Buffer.from(file.bytes);
+    const mime = file.mime || 'image/jpeg';
+    return { id: file.id, mime, data_url: `data:${mime};base64,${bytes.toString('base64')}` };
+  }).filter(Boolean);
+}
+
+function photoBuffers(store, propertyId) {
+  return photoIdList(store, propertyId).map((id) => {
+    const file = store.one('SELECT mime, bytes FROM i_file WHERE id = ?', [id]);
+    if (!file || file.bytes == null) return null;
+    return { mime: file.mime || 'image/jpeg', bytes: Buffer.from(file.bytes) };
+  }).filter(Boolean);
+}
+
+function planPhotos(api, propertyId, photos) {
+  if (photos.length > 12) return { error: 'invalid_property' };
+  const plan = [];
+  for (const item of photos) {
+    if (typeof item === 'string' && item.startsWith('file:')) {
+      const id = item.slice('file:'.length);
+      const row = api.store.one(
+        'SELECT id FROM i_file WHERE id = ? AND property_id = ? AND kind = ?',
+        [id, propertyId, 'photo'],
+      );
+      if (!row) return { error: 'invalid_property' };
+      plan.push({ keep: id });
+      continue;
+    }
+    if (typeof item !== 'string' || !/^data:image\/(?:png|jpeg|webp);base64,/i.test(item)) return { error: 'invalid_property' };
+    if (cleanUrl(item) == null) return { error: 'invalid_property' };
+    plan.push({ data: item });
+  }
+  return { plan };
+}
+
+function commitPhotos(api, propertyId, plan) {
+  const ids = [];
+  for (const item of plan) {
+    if (item.keep) {
+      ids.push(item.keep);
+      continue;
+    }
+    const id = persistDataUrl(api, propertyId, 'photo', item.data);
+    if (!id) return null;
+    ids.push(id);
+  }
+  const existing = api.store.all(`SELECT id FROM i_file WHERE property_id = ? AND kind = 'photo'`, [propertyId]);
+  for (const row of existing) {
+    if (!ids.includes(row.id)) api.store.run('DELETE FROM i_file WHERE id = ?', [row.id]);
+  }
+  api.store.run('UPDATE i_property SET photos = ? WHERE id = ?', [JSON.stringify(ids), propertyId]);
+  return ids;
 }
 
 function profileOf(body, id) {
@@ -1099,6 +1186,8 @@ function addProperty(api, config, body, actor) {
   const id = body.id || `P-${crypto.randomBytes(3).toString('hex')}`;
   const profile = profileOf(body, id);
   if (profile.error) return fail(400, profile.error);
+  const photoPlan = Array.isArray(body.photos) ? planPhotos(api, id, body.photos) : null;
+  if (photoPlan && photoPlan.error) return fail(400, photoPlan.error);
   if (String(profile.plan).startsWith('data:')) {
     profile.plan = storedFileRef(api, id, 'plan', profile.plan);
     if (!profile.plan) return fail(400, 'invalid_property');
@@ -1120,6 +1209,7 @@ function addProperty(api, config, body, actor) {
       [...fields, id],
     );
     audit(api.store, config, 'property_add', null, { property_id: id, updated: true }, actor || 'broker');
+    if (photoPlan && !commitPhotos(api, id, photoPlan.plan)) return fail(400, 'invalid_property');
     return { ok: true, id, updated: true };
   }
   api.store.run(
@@ -1128,17 +1218,23 @@ function addProperty(api, config, body, actor) {
     [id, ...fields.slice(0, 15), api.now().toISOString(), ...fields.slice(15)],
   );
   audit(api.store, config, 'property_add', null, { property_id: id }, actor || 'broker');
+  if (photoPlan && !commitPhotos(api, id, photoPlan.plan)) return fail(400, 'invalid_property');
   return { ok: true, id };
+}
+
+function brochureMeta(api, property) {
+  const settings = readSettings(api.store);
+  return {
+    brokerName: settings.broker_name || property.broker_name || property.agency || 'Broker',
+    brokerPhone: settings.broker_phone || property.broker_phone || '',
+    photos: photoBuffers(api.store, property.id),
+  };
 }
 
 async function brochureFor(api, id) {
   const property = propertyRow(api.store, id);
   if (!property || property.id === 'general') return fail(404, 'not_found');
-  const settings = readSettings(api.store);
-  const bytes = await brochurePdf(property, {
-    brokerName: settings.broker_name || property.broker_name || property.agency || 'Broker',
-    brokerPhone: settings.broker_phone || property.broker_phone || '',
-  });
+  const bytes = await brochurePdf(property, brochureMeta(api, property));
   return {
     ok: true,
     status: 200,
@@ -1192,7 +1288,10 @@ function setViewing(api, config, id, status, actor) {
   const row = api.store.one('SELECT * FROM i_viewing WHERE id = ?', [id]);
   if (!row) return fail(404, 'not_found');
   api.store.run('UPDATE i_viewing SET status = ? WHERE id = ?', [status, id]);
-  if (status === 'confirmed') api.store.run(`UPDATE i_slot SET status='booked' WHERE id=?`, [row.slot_id]);
+  if (status === 'confirmed') {
+    api.store.run(`UPDATE i_slot SET status='booked' WHERE id=?`, [row.slot_id]);
+    api.store.run('UPDATE i_lead SET client_confirmed = 1 WHERE id = ?', [row.lead_id]);
+  }
   audit(api.store, config, status === 'confirmed' ? 'viewing_confirm' : 'viewing_cancel', row.lead_id, { viewing_id: id }, actor || 'broker');
   return { ok: true, status };
 }
